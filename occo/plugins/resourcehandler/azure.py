@@ -28,11 +28,13 @@ import logging
 import occo.constants.status as status
 from occo.exceptions import SchemaError
 
-import azurerm
+#import azurerm
 import azure
 from azure.storage.blob import BlockBlobService
 import base64
 import time
+import requests
+import adal
 
 __all__ = ['AzureResourceHandler']
 
@@ -52,19 +54,107 @@ STATE_MAPPING = {
 
 log = logging.getLogger('occo.resourcehandler.azure')
 
+azure_rm_endpoint = 'https://management.azure.com'
+
+authentication_endpoint = 'https://login.microsoftonline.com/'
+#Azure Management API endpoint
+resource  = 'https://management.core.windows.net/'
+
+BASE_API = '2015-01-01'
+STORAGE_API = '2015-06-15'
+COMP_API = '2016-03-30'
+NETWORK_API = '2016-03-30'
+INSIGHTS_API = '2014-04-01'
+MEDIA_API = '2015-10-01'
+
 class CreateNode(Command):
     def __init__(self, resolved_node_definition):
         Command.__init__(self)
         self.resolved_node_definition = resolved_node_definition
 
+    def create_vm(self, access_token, subscription_id, resource_group, vm_name, vm_size, publisher, offer, sku, version,
+              storage_account, os_uri, username, password, nic_id, location, customData, image_uri=None, osType="Linux"):
+	endpoint = ''.join([azure_rm_endpoint,
+                '/subscriptions/', subscription_id,
+                '/resourceGroups/', resource_group,
+                '/providers/Microsoft.Compute/virtualMachines/', vm_name,
+                '?api-version=', COMP_API])
+	if image_uri:
+	    body = ''.join(['{"name": "', vm_name,
+                '","location": "', location,
+                '","properties": { "hardwareProfile": {',
+                '"vmSize": "', vm_size,
+                '"},',
+                '"storageProfile": { "osDisk": {',
+                                        '"name": "myosdisk1",',
+                                        '"osType": "', osType,
+                                        '","caching": "ReadWrite",',
+                                        '"createOption": "FromImage",',
+                                        '"image": { "uri": "', image_uri,
+                                         '"},',
+                                        '"vhd": { "uri": "', os_uri,
+                                '" }}}, ',
+                '"osProfile": {',
+                '"computerName": "', vm_name,
+                '", "adminUsername": "', username,
+                '", "adminPassword": "', password,
+                '", "customData": "', customData,
+                # '", linuxConfigurpuation": { "disablePasswordAuthentication": "', disablePassAuth,
+                # '", ssh": { "publicKeys": [ {'
+                # '"path": "', keyPathOnVm,
+                # '", keyData": "', PublicKey,
+                # '"} ] } }'
+                '" }, "networkProfile": {',
+                '"networkInterfaces": [{"id": "', nic_id,
+                '", "properties": {"primary": true}}]}}}'])
+	else:
+	    body = ''.join(['{"name": "', vm_name,
+                '","location": "', location,
+                '","properties": { "hardwareProfile": {',
+                '"vmSize": "', vm_size,
+                '"},"storageProfile": { "imageReference": { "publisher": "', publisher,
+                '","offer": "', offer,
+                '","sku": "', sku,
+                '","version": "', version,
+                '"},"osDisk": { "name": "myosdisk1","vhd": {',
+                '"uri": "', os_uri,
+                '" }, "caching": "ReadWrite", "createOption": "fromImage" }}, "osProfile": {',
+                '"computerName": "', vm_name,
+                '", "adminUsername": "', username,
+                '", "adminPassword": "', password,
+                '", "customData": "', customData,
+                # '", linuxConfigurpuation": { "disablePasswordAuthentication": "', disablePassAuth,
+                # '", ssh": { "publicKeys": [ {'
+                # '"path": "', keyPathOnVm,
+                # '", keyData": "', PublicKey,
+                # '"} ] } }'
+                '" }, "networkProfile": {',
+                '"networkInterfaces": [{"id": "', nic_id,
+                '", "properties": {"primary": true}}]}}}'])
+	return self.do_put(endpoint, body, access_token)
+
+    # do_put(endpoint, body, access_token)
+    # do an HTTP PUT request and return JSON
+    def do_put(self, endpoint, body, access_token):
+	headers = {"content-type": "application/json", "Authorization": 'Bearer ' + access_token}
+	return requests.put(endpoint, data=body, headers=headers)
+    
+    # get_access_token(tenant_id, application_id, application_secret)
+    # get an Azure access token using the adal library
+    def get_access_token(self, tenant_id, application_id, application_secret):
+	context = adal.AuthenticationContext(authentication_endpoint + tenant_id)
+	token_response = context.acquire_token_with_client_credentials(resource, application_id,
+                                                                   application_secret)
+	return token_response.get('accessToken')
+
     @wet_method()
     def _create_azure_node(self, resource_dict, auth_data, vm_name_unique, os_uri, customdata):
-	access_token = azurerm.get_access_token(resource_dict.get("tenant_id"), 
+	access_token = self.get_access_token(resource_dict.get("tenant_id"), 
                                                 auth_data.get("application_id"), 
 						auth_data.get("application_secret"))
 	#log.debug("Access token: %s",str(access_token))
 
-	rmreturn = azurerm.create_vm(access_token, 
+	rmreturn = self.create_vm(access_token, 
                                      resource_dict.get("subscription_id"), 
                                      resource_dict.get("resource_group"), 
                                      vm_name_unique,
@@ -138,14 +228,54 @@ class DropNode(Command):
     def __init__(self, instance_data):
         Command.__init__(self)
         self.instance_data = instance_data    
-    
+
+    # delete_vm(access_token, subscription_id, resource_group, vm_name)
+    # delete a virtual machine
+    def delete_vm(self, access_token, subscription_id, resource_group, vm_name):
+	endpoint = ''.join([azure_rm_endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Compute/virtualMachines/', vm_name,
+                        '?api-version=', COMP_API])
+	return self.do_delete(endpoint, access_token)
+
+    #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!! Instance nezet !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    def get_vm_instance_view(self, access_token, subscription_id, resource_group, vm_name):
+	endpoint = ''.join([azure_rm_endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Compute/virtualMachines/', vm_name,
+                        '/InstanceView?api-version=', COMP_API])
+	return self.do_get(endpoint, access_token)
+
+    # do_delete(endpoint, access_token)
+    # do an HTTP DELETE request and return JSON
+    def do_delete(self, endpoint, access_token):
+	headers = {"Authorization": 'Bearer ' + access_token}
+	return requests.delete(endpoint, headers=headers)
+
+	# do_get(endpoint, access_token)
+    # do an HTTP GET request and return JSON
+    def do_get(self, endpoint, access_token):
+	headers = {"Authorization": 'Bearer ' + access_token}
+	return requests.get(endpoint, headers=headers)
+
+    # get_access_token(tenant_id, application_id, application_secret)
+    # get an Azure access token using the adal library
+    def get_access_token(self, tenant_id, application_id, application_secret):
+	context = adal.AuthenticationContext(authentication_endpoint + tenant_id)
+	token_response = context.acquire_token_with_client_credentials(resource, application_id,
+                                                                   application_secret)
+	return token_response.get('accessToken')
+
+
     @wet_method()
     def _drop_azure_node(self, auth_data, instance_data):
-	access_token = azurerm.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
+	access_token = self.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
                                                 auth_data.get("application_id"), 
 						auth_data.get("application_secret"))
 
-	rmreturn = azurerm.delete_vm(access_token,
+	rmreturn = self.delete_vm(access_token,
 				     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
 				     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
 				     instance_data.get("instance_id"))
@@ -158,7 +288,7 @@ class DropNode(Command):
 	#Ha vegzett a VM torlessel, akkor a hatrahagyott containert kitoroljuk a storage accountban
 	vm_getinfo =''
 	while ((str(vm_getinfo).find('not found')) == -1):
-	    vm_getinfo = azurerm.get_vm_instance_view(access_token,
+	    vm_getinfo = self.get_vm_instance_view(access_token,
 						     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
 						     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
 						     instance_data.get("instance_id"))
@@ -205,9 +335,33 @@ class GetState(Command):
         Command.__init__(self)
         self.instance_data = instance_data
     
+
+#  !!!!!!!!!!!!!!!!!!!!!!!!!!!!! Instance nezet !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    def get_vm_instance_view(self, access_token, subscription_id, resource_group, vm_name):
+        endpoint = ''.join([azure_rm_endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Compute/virtualMachines/', vm_name,
+                        '/InstanceView?api-version=', COMP_API])
+        return self.do_get(endpoint, access_token)
+    # do_get(endpoint, access_token)
+    # do an HTTP GET request and return JSON
+    def do_get(self, endpoint, access_token):
+	headers = {"Authorization": 'Bearer ' + access_token}
+	return requests.get(endpoint, headers=headers)
+
+    # get_access_token(tenant_id, application_id, application_secret)
+    # get an Azure access token using the adal library
+    def get_access_token(self, tenant_id, application_id, application_secret):
+	context = adal.AuthenticationContext(authentication_endpoint + tenant_id)
+	token_response = context.acquire_token_with_client_credentials(resource, application_id,
+                                                                   application_secret)
+	return token_response.get('accessToken')
+
+
     @wet_method('VM running')
     def _getstate_azure_node(self, auth_data, instance_data):
-	access_token = azurerm.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
+	access_token = self.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
                                                 auth_data.get("application_id"), 
 						auth_data.get("application_secret"))
 	#log.debug("Acc token:"+access_token)
@@ -215,7 +369,7 @@ class GetState(Command):
 	inst_state = ''
 	vm_getinfo_code = ''
 	vm_getinfo_disp = ''
-	vm_getinfo = azurerm.get_vm_instance_view(access_token, 
+	vm_getinfo = self.get_vm_instance_view(access_token, 
 						  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"), 
 						  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
 						   instance_data.get("instance_id"))
@@ -267,9 +421,43 @@ class GetIpAddress(Command):
         Command.__init__(self)
         self.instance_data = instance_data
 
+    #get_nics(access_token, subscription_id) ez kell a vm publikus ip cimenek lekeresehez
+    def get_nic(self, access_token, subscription_id, resource_group, nic_name):
+	endpoint = ''.join([azure_rm_endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Network/',
+                        '/networkInterfaces/', nic_name,
+                        '?api-version=', NETWORK_API])
+	return self.do_get(endpoint, access_token)
+    # do_get(endpoint, access_token)
+    # do an HTTP GET request and return JSON
+    def do_get(self, endpoint, access_token):
+	headers = {"Authorization": 'Bearer ' + access_token}
+	return requests.get(endpoint, headers=headers)
+
+    # get_public_ip(access_token, subscription_id, resource_group)
+    # get details about the named public ip address
+    def get_public_ip(self, access_token, subscription_id, resource_group, ip_name):
+	endpoint = ''.join([azure_rm_endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Network/',
+                        'publicIPAddresses/', ip_name,
+                        '?api-version=', NETWORK_API])
+        return self.do_get(endpoint, access_token)
+    
+    # get_access_token(tenant_id, application_id, application_secret)
+    # get an Azure access token using the adal library
+    def get_access_token(self, tenant_id, application_id, application_secret):
+	context = adal.AuthenticationContext(authentication_endpoint + tenant_id)
+	token_response = context.acquire_token_with_client_credentials(resource, application_id,
+                                                                   application_secret)
+	return token_response.get('accessToken')
+
     @wet_method('127.0.0.1')
     def _getIpaddress_azure_node(self, auth_data, instance_data):
-	access_token = azurerm.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
+	access_token = self.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
                                                 auth_data.get("application_id"),
 						auth_data.get("application_secret")) 
 	#log.debug("Acc token:"+access_token)
@@ -312,7 +500,7 @@ class GetIpAddress(Command):
 
 	ip_data = [] #nyers adat, amit az API valaszol
 
-	ip_data = azurerm.get_nic(access_token, nic_subscription_id, nic_resource_group, vm_nic_name).json()
+	ip_data = self.get_nic(access_token, nic_subscription_id, nic_resource_group, vm_nic_name).json()
 	log.debug("ip_data NYERS: %s",str(ip_data))
 	ip_data = ip_data.get("properties", dict()).get("ipConfigurations")
 	log.debug("ip_data properties/ipConfigurations: %s",str(ip_data))
@@ -346,14 +534,14 @@ class GetIpAddress(Command):
 
 	    #Get information about a public IP address hivas
 	    #for i in range(len(public_ip_name)):
-    	    #    public_ip.append(azurerm.get_public_ip(access_token, public_ip_subid[i],public_ip_rsg[i],public_ip_name[i]).json()["properties"]["ipAddress"])
+    	    #    public_ip.append(self.get_public_ip(access_token, public_ip_subid[i],public_ip_rsg[i],public_ip_name[i]).json()["properties"]["ipAddress"])
 
 	    # #Formazas
 	    # for i in range(len(public_ip)):
     	    # print(public_ip_name[i] + ' Public IP: ' + public_ip[i])
-	    public_ip_raw = str(azurerm.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json())
+	    public_ip_raw = str(self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json())
 	    log.debug("public_ip_ NYERS: %s",str(public_ip_raw))
-	    public_ip = azurerm.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json().get("properties", dict()).get("ipAddress", None)
+	    public_ip = self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json().get("properties", dict()).get("ipAddress", None)
 	    
 	#Nincs public IP a NIC-hez rendelve
         else:
@@ -381,9 +569,43 @@ class GetAddress(Command):
         Command.__init__(self)
         self.instance_data = instance_data
 
+    #get_nics(access_token, subscription_id) ez kell a vm publikus ip cimenek lekeresehez
+    def get_nic(self, access_token, subscription_id, resource_group, nic_name):
+	endpoint = ''.join([azure_rm_endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Network/',
+                        '/networkInterfaces/', nic_name,
+                        '?api-version=', NETWORK_API])
+	return self.do_get(endpoint, access_token)
+    # do_get(endpoint, access_token)
+    # do an HTTP GET request and return JSON
+    def do_get(self, endpoint, access_token):
+	headers = {"Authorization": 'Bearer ' + access_token}
+	return requests.get(endpoint, headers=headers)
+
+    # get_public_ip(access_token, subscription_id, resource_group)
+    # get details about the named public ip address
+    def get_public_ip(self, access_token, subscription_id, resource_group, ip_name):
+	endpoint = ''.join([azure_rm_endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Network/',
+                        'publicIPAddresses/', ip_name,
+                        '?api-version=', NETWORK_API])
+        return self.do_get(endpoint, access_token)
+
+    # get_access_token(tenant_id, application_id, application_secret)
+    # get an Azure access token using the adal library
+    def get_access_token(self, tenant_id, application_id, application_secret):
+	context = adal.AuthenticationContext(authentication_endpoint + tenant_id)
+	token_response = context.acquire_token_with_client_credentials(resource, application_id,
+                                                                   application_secret)
+	return token_response.get('accessToken')
+
     @wet_method('127.0.0.1')
     def _getaddress_azure_node(self, auth_data, instance_data):
-	access_token = azurerm.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
+	access_token = self.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
                                                 auth_data.get("application_id"), 
 						auth_data.get("application_secret"))
 	#log.debug("Acc token:"+access_token)
@@ -427,7 +649,7 @@ class GetAddress(Command):
 
 	ip_data = [] #nyers adat, amit az API valaszol
 
-	ip_data = azurerm.get_nic(access_token, nic_subscription_id, nic_resource_group, vm_nic_name).json()
+	ip_data = self.get_nic(access_token, nic_subscription_id, nic_resource_group, vm_nic_name).json()
 	log.debug("ip_data NYERS: %s",str(ip_data))
 	ip_data = ip_data.get("properties", dict()).get("ipConfigurations")
 	log.debug("ip_data properties/ipConfigurations: %s",str(ip_data))
@@ -461,16 +683,16 @@ class GetAddress(Command):
 
 	    #Get information about a public IP address hivas
 	    #for i in range(len(public_ip_name)):
-    	    #    public_ip.append(azurerm.get_public_ip(access_token, public_ip_subid[i],public_ip_rsg[i],public_ip_name[i]).json()["properties"]["ipAddress"])
+    	    #    public_ip.append(self.get_public_ip(access_token, public_ip_subid[i],public_ip_rsg[i],public_ip_name[i]).json()["properties"]["ipAddress"])
 
 	    # #Formazas
 	    # for i in range(len(public_ip)):
     	    # print(public_ip_name[i] + ' Public IP: ' + public_ip[i])
-	    public_ip_raw = str(azurerm.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json())
+	    public_ip_raw = str(self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json())
 	    log.debug("public_ip_ NYERS: %s",str(public_ip_raw))
-	    public_dns = azurerm.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json().get("properties", dict()).get("dnsSettings", dict()).get("fqdn", None)
+	    public_dns = self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json().get("properties", dict()).get("dnsSettings", dict()).get("fqdn", None)
 	    log.debug("DNS nev: %s",str(public_dns))
-	    public_ip = azurerm.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json().get("properties", dict()).get("ipAddress", None)
+	    public_ip = self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json().get("properties", dict()).get("ipAddress", None)
 
 	#Else, nincs public IP es public DNS a NIC-hez rendelve
         else:
