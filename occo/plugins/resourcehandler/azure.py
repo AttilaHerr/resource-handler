@@ -133,6 +133,46 @@ class CreateNode(Command):
                 '", "properties": {"primary": true}}]}}}'])
 	return self.do_put(endpoint, body, access_token)
 
+    # create_public_ip(access_token, subscription_id, resource_group)
+    # list the public ip addresses in a resource group
+    def create_public_ip(self, access_token, subscription_id, resource_group, public_ip_name, location, dns_label=None):
+	endpoint = ''.join([azure_rm_endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Network/publicIPAddresses/', public_ip_name,
+                        '?api-version=', NETWORK_API])
+	if dns_label != None:
+	    body = ''.join(['{"location": "', location,
+                    '", "properties": {"publicIPAllocationMethod": "Dynamic", "dnsSettings": {',
+                    '"domainNameLabel": "', dns_label, '"}}}'])
+	else:
+	    body = ''.join(['{"location": "', location,
+                    '", "properties": {"publicIPAllocationMethod": "Dynamic",}}'])
+        return self.do_put(endpoint, body, access_token)
+
+    # create_nic(access_token, subscription_id, resource_group, nic_name, public_ip_id, subnet_id, location)
+    # create a network interface with an associated public ip address
+    def create_nic(self, access_token, subscription_id, resource_group, nic_name, subnet_id, location, public_ip_id=None):
+	endpoint = ''.join([azure_rm_endpoint,
+                    '/subscriptions/', subscription_id,
+                    '/resourceGroups/', resource_group,
+                    '/providers/Microsoft.Network/networkInterfaces/', nic_name,
+                    '?api-version=', NETWORK_API])
+	if public_ip_id != None:
+	    body = ''.join(['{ "location": "', location,
+                    '", "properties": { "ipConfigurations": [{ "name": "ipconfig1", "properties": {',
+                    '"privateIPAllocationMethod": "Dynamic", "publicIPAddress": {',
+                    '"id": "', public_ip_id,
+                    '" }, "subnet": { "id": "', subnet_id,
+                    '" } } } ] } }'])
+	else:
+	    body = ''.join(['{ "location": "', location,
+                    '", "properties": { "ipConfigurations": [{ "name": "ipconfig1", "properties": {',
+                    '"privateIPAllocationMethod": "Dynamic",',
+                    '"subnet": { "id": "', subnet_id,
+                    '" } } } ] } }'])
+	return self.do_put(endpoint, body, access_token)
+
     # do_put(endpoint, body, access_token)
     # do an HTTP PUT request and return JSON
     def do_put(self, endpoint, body, access_token):
@@ -148,16 +188,55 @@ class CreateNode(Command):
 	return token_response.get('accessToken')
 
     @wet_method()
-    def _create_azure_node(self, resource_dict, auth_data, vm_name_unique, os_uri, customdata):
+    def _create_azure_node(self, resource_dict, auth_data, name_unique, os_uri, customdata):
 	access_token = self.get_access_token(resource_dict.get("tenant_id"), 
                                                 auth_data.get("application_id"), 
 						auth_data.get("application_secret"))
 	#log.debug("Access token: %s",str(access_token))
 
-	rmreturn = self.create_vm(access_token, 
+        # # create public IP address
+	public_ip_id = None
+	if resource_dict.get("public_ip_needed", False):
+	    log.debug('Creating public IP address: ' + "occo-pip-"+name_unique)
+	    pip_return = self.create_public_ip(access_token, resource_dict.get("subscription_id"), resource_dict.get("resource_group"),
+                                            "occo-pip-"+name_unique, resource_dict.get("vnet_location"),
+					    dns_label=resource_dict.get("public_dns_name", None))
+	    log.debug("create_pip RETURN: %s", str(pip_return.json()))
+	    log.debug("pip_return STATUS CODE: %s", str(pip_return.status_code))
+	    #Ha sikeres a pip keszites, akkor folytassa, maskulonben ERROR
+	    if pip_return.status_code == 201:
+		public_ip_id = pip_return.json().get('id', None)
+		log.debug('public_ip_id = ' + str(public_ip_id))
+	    else:
+		#RAISE EXCEPTION KELL!
+		log.debug('Error:' + pip_return.json().get("error").get("message"))
+
+	time.sleep(2)       # 2 masodperc varakozas
+
+	# # create NIC
+	
+	log.debug('Creating NIC: ' + "occo-nic-"+name_unique)
+	subnet_id = "{0}/subnets/{1}".format(resource_dict.get("vnet_id"), resource_dict.get("subnet_name"))
+	nic_return = self.create_nic(access_token, resource_dict.get("subscription_id"), resource_dict.get("resource_group"),
+					 "occo-nic-"+name_unique, subnet_id , resource_dict.get("vnet_location"), public_ip_id=public_ip_id)
+	log.debug('NIC_RETURN : ' +str(nic_return.json()))
+	log.debug('NIC_status_code : ' +str(nic_return.status_code))
+	if nic_return.status_code == 201:
+	    nic_id = nic_return.json().get('id')
+	    log.debug('NIC_ID : ' +str(nic_id))
+	else:
+	        # HIBA RAISE ERROR 
+	    log.debug('Error:' + nic_return.json().get("error").get("message"))
+	
+
+	time.sleep(2)       # 2 masodperc varakozas
+
+
+	
+	vm_return = self.create_vm(access_token, 
                                      resource_dict.get("subscription_id"), 
                                      resource_dict.get("resource_group"), 
-                                     vm_name_unique,
+                                      "occo-vm-" + name_unique,
 				     resource_dict.get("vm_size"), 
                                      resource_dict.get("publisher"), 
                                      resource_dict.get("offer"), 
@@ -167,12 +246,12 @@ class CreateNode(Command):
                                      os_uri, 
                                      resource_dict.get("username"),
 				     resource_dict.get("password"), 
-                                     resource_dict.get("nic_id"), 
+                                     nic_id, 
                                      resource_dict.get("vm_location"), 
                                      customdata,
 				     image_uri=resource_dict.get("image_uri", None)
 				     )
-	log.debug("rmreturn: %s", str(rmreturn.json()))
+	log.debug("vm_return: %s", str(vm_return.json()))
 
 	#vm_getinfo =''
 	#while ((str(vm_getinfo).find('ProvisioningState/succeeded')) == -1):
@@ -190,7 +269,7 @@ class CreateNode(Command):
 	#	log.debug("get_vm_instance JSON: %s", str(vm_getinfo.json()))
 	#	break
 	time.sleep(3)
-	return 
+	return dict(vm_name_unique="occo-vm-"+name_unique, nic_id=nic_id, public_ip_id=public_ip_id)
 
 
     def perform(self, resource_handler):
@@ -204,25 +283,25 @@ class CreateNode(Command):
 	log.debug("Resolved node definition: %s",str(self.resolved_node_definition))
 
 	resource_dict = self.resolved_node_definition.get("resource",dict())
-	vm_name_unique = "{0}-{1}-{2}-{3}".format(
-					self.resolved_node_definition.get("infra_name")[0:17],
+	name_unique = "{0}-{1}-{2}-{3}".format(
+					self.resolved_node_definition.get("infra_name")[0:14],
 					self.resolved_node_definition.get("infra_id")[0:13],
-                                       self.resolved_node_definition.get("name")[0:17],
+                                       self.resolved_node_definition.get("name")[0:14],
                                        self.resolved_node_definition.get("node_id")[0:13])
-        log.debug("Azure: vm_name: %s",vm_name_unique)
+	name_unique = name_unique.replace("_", "-")
+        log.debug("Azure name_unique: %s",name_unique)
+	os_uri = "http://{0}.blob.core.windows.net/{1}/osdisk.vhd".format(resource_dict.get("storage_name"), "occo-vm-"+name_unique)
 
-	os_uri = "http://{0}.blob.core.windows.net/{1}/osdisk.vhd".format(resource_dict.get("storage_name"), vm_name_unique)
 	#image_uri = "https://tesztgroupdisk.blob.core.windows.net/vhds/kezzel-keszitett201691011256.vhd"
 	customdata = base64.b64encode(self.resolved_node_definition.get("context"))
 	log.debug("customdata:"+customdata)
-	log.debug("vm_name:"+vm_name_unique)
+	log.debug("vm_name: occo-vm-"+name_unique)
 	log.debug("os_uri:"+os_uri)
 
-	self._create_azure_node(self.resolved_node_definition.get("resource",dict()), resource_handler.auth_data, vm_name_unique, os_uri, customdata)
+	instance_id_dict = self._create_azure_node(self.resolved_node_definition.get("resource",dict()), resource_handler.auth_data, name_unique, os_uri, customdata)
 
-        vm_id = vm_name_unique
-        log.debug("[%s] Done; vm_id = %r", resource_handler.name, str(vm_id))
-        return vm_id
+        log.debug("[%s] Done; vm_id = %r", resource_handler.name, str(instance_id_dict))
+        return instance_id_dict
 
 class DropNode(Command):
     def __init__(self, instance_data):
@@ -278,7 +357,7 @@ class DropNode(Command):
 	rmreturn = self.delete_vm(access_token,
 				     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
 				     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
-				     instance_data.get("instance_id"))
+				     instance_data.get("instance_id").get("vm_name_unique"))
 	log.debug("Delete response kod:%s",str(rmreturn.status_code))
 	#if rmreturn.status_code != (202 or 200):
 	    # hiba dobas!
@@ -291,7 +370,7 @@ class DropNode(Command):
 	    vm_getinfo = self.get_vm_instance_view(access_token,
 						     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
 						     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
-						     instance_data.get("instance_id"))
+						     instance_data.get("instance_id").get("vm_name_unique"))
 	    if vm_getinfo.status_code == 200:
 		if (len(vm_getinfo.json().get("statuses")) == 1):
         	    vm_getinfo = "Code:{0} \t Display status:{1}".format(vm_getinfo.json().get("statuses")[0].get("code"),vm_getinfo.json().get("statuses")[0].get("displayStatus"))
@@ -307,7 +386,7 @@ class DropNode(Command):
 	    try:
 	        block_blob_service = BlockBlobService(account_name=instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("storage_name"),
 					      account_key=instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("storage_key"))
-	        delete_container = block_blob_service.delete_container(instance_data.get("instance_id"))
+	        delete_container = block_blob_service.delete_container(instance_data.get("instance_id").get("vm_name_unique"))
 	        log.debug("CONTAINER DELETE:%s",str(delete_container))
 	    except azure.common.AzureHttpError as ex:
 	        log.debug("Error: %s",str(ex.message))
@@ -372,7 +451,7 @@ class GetState(Command):
 	vm_getinfo = self.get_vm_instance_view(access_token, 
 						  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"), 
 						  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
-						   instance_data.get("instance_id"))
+						   instance_data.get("instance_id").get("vm_name_unique"))
 	if vm_getinfo.status_code == 200:
 	    if (len(vm_getinfo.json().get("statuses")) == 1):
 		vm_getinfo_code = vm_getinfo.json().get("statuses")[0].get("code")
@@ -466,7 +545,8 @@ class GetIpAddress(Command):
 	nic_resource_group = ''
 	nic_name_idx = ''
 	vm_nic_name = ''
-	vm_nic_id = instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("nic_id")
+	#vm_nic_id = instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("nic_id")
+	vm_nic_id = instance_data.get("instance_id").get("nic_id")
 	
 	vm_nic_id_splitted = str.split(str(vm_nic_id), '/')
         log.debug("Vm_nics_ids_splitted: %s",str(vm_nic_id_splitted))
@@ -614,8 +694,9 @@ class GetAddress(Command):
 	nic_resource_group = ''
 	nic_name_idx = ''
 	vm_nic_name = ''
-	vm_nic_id = instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("nic_id")
-	
+	#vm_nic_id = instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("nic_id")
+	vm_nic_id = instance_data.get("instance_id").get("nic_id")
+
 	vm_nic_id_splitted = str.split(str(vm_nic_id), '/')
         log.debug("Vm_nics_ids_splitted: %s",str(vm_nic_id_splitted))
         log.debug("Vm_nics_id_splitted: %s",str(len(vm_nic_id_splitted)))
@@ -748,9 +829,9 @@ class AzureResourceHandler(ResourceHandler):
 class AzureSchemaChecker(RHSchemaChecker):
     def __init__(self):
         self.req_keys = ["type", "endpoint", "subscription_id", "tenant_id", "storage_name", "storage_key",
-                         "nic_id", "resource_group", "vm_location", "vm_size", "publisher", "offer", "sku",
-			 "version", "username", "password", "customdata"]
-        self.opt_keys = ["image_uri",  "keep_vhd_on_destroy"]
+                         "vnet_id", "vnet_location", "subnet_name", "resource_group", "vm_location", "vm_size",
+                         "publisher", "offer", "sku", "version", "username", "password", "customdata"]
+        self.opt_keys = ["public_ip_needed", "public_dns_name", "image_uri",  "keep_vhd_on_destroy"]
     def perform_check(self, data):
         missing_keys = RHSchemaChecker.get_missing_keys(self, data, self.req_keys)
         if missing_keys:
