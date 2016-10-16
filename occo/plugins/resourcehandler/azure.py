@@ -152,7 +152,7 @@ class CreateNode(Command):
 
     # create_nic(access_token, subscription_id, resource_group, nic_name, public_ip_id, subnet_id, location)
     # create a network interface with an associated public ip address
-    def create_nic(self, access_token, subscription_id, resource_group, nic_name, subnet_id, location, public_ip_id=None):
+    def create_nic(self, access_token, subscription_id, resource_group, nic_name, subnet_id, location, nsg_id, public_ip_id=None):
 	endpoint = ''.join([azure_rm_endpoint,
                     '/subscriptions/', subscription_id,
                     '/resourceGroups/', resource_group,
@@ -160,14 +160,16 @@ class CreateNode(Command):
                     '?api-version=', NETWORK_API])
 	if public_ip_id != None:
 	    body = ''.join(['{ "location": "', location,
-                    '", "properties": { "ipConfigurations": [{ "name": "ipconfig1", "properties": {',
-                    '"privateIPAllocationMethod": "Dynamic", "publicIPAddress": {',
-                    '"id": "', public_ip_id,
-                    '" }, "subnet": { "id": "', subnet_id,
+                    '", "properties": { "networkSecurityGroup":{ "id": "', nsg_id,
+				'" }, "ipConfigurations": [{ "name": "ipconfig1", "properties": {',
+                		    '"privateIPAllocationMethod": "Dynamic", "publicIPAddress": {',
+                		    '"id": "', public_ip_id,
+                		    '" }, "subnet": { "id": "', subnet_id,
                     '" } } } ] } }'])
 	else:
 	    body = ''.join(['{ "location": "', location,
-                    '", "properties": { "ipConfigurations": [{ "name": "ipconfig1", "properties": {',
+                    '", "properties": { "networkSecurityGroup":{ "id": "', nsg_id,
+				'" }, "ipConfigurations": [{ "name": "ipconfig1", "properties": {',
                     '"privateIPAllocationMethod": "Dynamic",',
                     '"subnet": { "id": "', subnet_id,
                     '" } } } ] } }'])
@@ -211,14 +213,14 @@ class CreateNode(Command):
 		#RAISE EXCEPTION KELL!
 		log.debug('Error:' + pip_return.json().get("error").get("message"))
 
-	time.sleep(2)       # 2 masodperc varakozas
+	time.sleep(2)       # 2 masodperc varakozas (kb. ezalatt elkesziti)
 
 	# # create NIC
 	
 	log.debug('Creating NIC: ' + "occo-nic-"+name_unique)
 	subnet_id = "{0}/subnets/{1}".format(resource_dict.get("vnet_id"), resource_dict.get("subnet_name"))
 	nic_return = self.create_nic(access_token, resource_dict.get("subscription_id"), resource_dict.get("resource_group"),
-					 "occo-nic-"+name_unique, subnet_id , resource_dict.get("vnet_location"), public_ip_id=public_ip_id)
+					 "occo-nic-"+name_unique, subnet_id , resource_dict.get("vnet_location"),resource_dict.get("nsg_id"), public_ip_id=public_ip_id)
 	log.debug('NIC_RETURN : ' +str(nic_return.json()))
 	log.debug('NIC_status_code : ' +str(nic_return.status_code))
 	if nic_return.status_code == 201:
@@ -229,7 +231,7 @@ class CreateNode(Command):
 	    log.debug('Error:' + nic_return.json().get("error").get("message"))
 	
 
-	time.sleep(2)       # 2 masodperc varakozas
+	time.sleep(2)       # 2 masodperc varakozas (kb. ezalatt elkesziti)
 
 
 	
@@ -327,6 +329,26 @@ class DropNode(Command):
                         '/InstanceView?api-version=', COMP_API])
 	return self.do_get(endpoint, access_token)
 
+
+    #NIC torlese
+    def delete_nic(self, access_token, subscription_id, resource_group, nic_name):
+	endpoint = ''.join([azure_rm_endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Network/networkInterfaces/', nic_name,
+                        '?api-version=', NETWORK_API])
+	return self.do_delete(endpoint, access_token)
+
+
+#PIP torlese
+    def delete_pip(self, access_token, subscription_id, resource_group, pip_name):
+	endpoint = ''.join([azure_rm_endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Network/publicIPAddresses/', pip_name,
+                        '?api-version=', NETWORK_API])
+	return self.do_delete(endpoint, access_token)
+
     # do_delete(endpoint, access_token)
     # do an HTTP DELETE request and return JSON
     def do_delete(self, endpoint, access_token):
@@ -391,7 +413,32 @@ class DropNode(Command):
 	    except azure.common.AzureHttpError as ex:
 	        log.debug("Error: %s",str(ex.message))
 	#sikeres a torles, ha (delete_container = True es rmreturn.status_code = 200 or 202)
+
+	#Delete NIC
+	delete_nic_info = self.delete_nic(access_token,
+					  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
+					  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
+					  instance_data.get("instance_id").get("nic_id").rsplit('/').pop())
+	#nic_name kinyerese a nic_id-bol, feldaraboljuk az id-t '/' karakter szerint, majd az utolso lesz a nev, pop()
+	log.debug("Delete_nic_info.status_code: %s:",str(delete_nic_info.status_code))
+	if delete_nic_info.status_code != 202:
+	    #akkor error
+	    log.debug("Delete_nic_info.status_code: %s:",str(delete_nic_info.status_code))
 	
+	time.sleep(5) #max ennyi ido alatt torli ki a NIC-et
+
+	#Delete PIP, if the node has got public IP
+	if (instance_data.get("instance_id").get("public_ip_id") != None):
+	    delete_pip_info = self.delete_pip(access_token,
+					    instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
+					    instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
+					    instance_data.get("instance_id").get("public_ip_id").rsplit('/').pop())
+	log.debug("Delete_pip_info.status_code: %s",str(delete_pip_info))
+	    if (delete_pip_info.status_code != 202):
+		#akkor error
+		log.debug("Delete_pip_info.status_code: %s",str(delete_pip_info))
+
+
 	return
 
     def perform(self, resource_handler):
@@ -829,7 +876,7 @@ class AzureResourceHandler(ResourceHandler):
 class AzureSchemaChecker(RHSchemaChecker):
     def __init__(self):
         self.req_keys = ["type", "endpoint", "subscription_id", "tenant_id", "storage_name", "storage_key",
-                         "vnet_id", "vnet_location", "subnet_name", "resource_group", "vm_location", "vm_size",
+                         "vnet_id", "vnet_location", "nsg_id", "subnet_name", "resource_group", "vm_location", "vm_size",
                          "publisher", "offer", "sku", "version", "username", "password", "customdata"]
         self.opt_keys = ["public_ip_needed", "public_dns_name", "image_uri",  "keep_vhd_on_destroy"]
     def perform_check(self, data):
