@@ -180,21 +180,22 @@ class CreateNode(Command):
     def do_put(self, endpoint, body, access_token):
 	headers = {"content-type": "application/json", "Authorization": 'Bearer ' + access_token}
 	return requests.put(endpoint, data=body, headers=headers)
-    
-    # get_access_token(tenant_id, application_id, application_secret)
-    # get an Azure access token using the adal library
-    def get_access_token(self, tenant_id, application_id, application_secret):
-	context = adal.AuthenticationContext(authentication_endpoint + tenant_id)
-	token_response = context.acquire_token_with_client_credentials(resource, application_id,
-                                                                   application_secret)
-	return token_response.get('accessToken')
+
 
     @wet_method()
     def _create_azure_node(self, resource_dict, auth_data, name_unique, os_uri, customdata):
-	access_token = self.get_access_token(resource_dict.get("tenant_id"), 
-                                                auth_data.get("application_id"), 
-						auth_data.get("application_secret"))
-	#log.debug("Access token: %s",str(access_token))
+
+#--------Kodtisztazas, access token beemelese-----------
+        # get_access_token(tenant_id, application_id, application_secret)
+        # get an Azure access token using the adal library
+	auth_context = adal.AuthenticationContext(authentication_endpoint + (resource_dict.get("tenant_id")))
+	token_response = auth_context.acquire_token_with_client_credentials(resource,
+                                                                            auth_data.get("application_id"),
+                                                                            auth_data.get("application_secret")
+                                                                            )
+	access_token = token_response.get('accessToken')
+        log.debug("Acc token:"+access_token)
+
 
         # # create public IP address
 	public_ip_id = None
@@ -361,20 +362,20 @@ class DropNode(Command):
 	headers = {"Authorization": 'Bearer ' + access_token}
 	return requests.get(endpoint, headers=headers)
 
-    # get_access_token(tenant_id, application_id, application_secret)
-    # get an Azure access token using the adal library
-    def get_access_token(self, tenant_id, application_id, application_secret):
-	context = adal.AuthenticationContext(authentication_endpoint + tenant_id)
-	token_response = context.acquire_token_with_client_credentials(resource, application_id,
-                                                                   application_secret)
-	return token_response.get('accessToken')
-
 
     @wet_method()
     def _drop_azure_node(self, auth_data, instance_data):
-	access_token = self.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
-                                                auth_data.get("application_id"), 
-						auth_data.get("application_secret"))
+
+#--------Kodtisztazas, access token beemelese-----------
+        # get_access_token(tenant_id, application_id, application_secret)
+        # get an Azure access token using the adal library
+	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
+	token_response = auth_context.acquire_token_with_client_credentials(resource,
+                                                                            auth_data.get("application_id"),
+                                                                            auth_data.get("application_secret")
+                                                                            )
+	access_token = token_response.get('accessToken')
+        log.debug("Acc token:"+access_token)
 
 	rmreturn = self.delete_vm(access_token,
 				     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
@@ -433,8 +434,8 @@ class DropNode(Command):
 					    instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
 					    instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
 					    instance_data.get("instance_id").get("public_ip_id").rsplit('/').pop())
-	log.debug("Delete_pip_info.status_code: %s",str(delete_pip_info))
-	    if (delete_pip_info.status_code != 202):
+	    log.debug("Delete_pip_info.status_code: %s",str(delete_pip_info))
+	    if delete_pip_info.status_code != 202:
 		#akkor error
 		log.debug("Delete_pip_info.status_code: %s",str(delete_pip_info))
 
@@ -476,21 +477,24 @@ class GetState(Command):
 	headers = {"Authorization": 'Bearer ' + access_token}
 	return requests.get(endpoint, headers=headers)
 
-    # get_access_token(tenant_id, application_id, application_secret)
-    # get an Azure access token using the adal library
-    def get_access_token(self, tenant_id, application_id, application_secret):
-	context = adal.AuthenticationContext(authentication_endpoint + tenant_id)
-	token_response = context.acquire_token_with_client_credentials(resource, application_id,
-                                                                   application_secret)
-	return token_response.get('accessToken')
-
 
     @wet_method('VM running')
     def _getstate_azure_node(self, auth_data, instance_data):
-	access_token = self.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
-                                                auth_data.get("application_id"), 
-						auth_data.get("application_secret"))
+	#access_token = self.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
+        #                                        auth_data.get("application_id"), 
+	#					auth_data.get("application_secret"))
 	#log.debug("Acc token:"+access_token)
+
+	#--------Kodtisztazas, access token beemelese-----------
+        # get_access_token(tenant_id, application_id, application_secret)
+        # get an Azure access token using the adal library
+	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
+	token_response = auth_context.acquire_token_with_client_credentials(resource,
+                                                                            auth_data.get("application_id"),
+                                                                            auth_data.get("application_secret")
+                                                                            )
+	access_token = token_response.get('accessToken')
+        #log.debug("Acc token:"+access_token)
 
 	inst_state = ''
 	vm_getinfo_code = ''
@@ -572,21 +576,21 @@ class GetIpAddress(Command):
                         'publicIPAddresses/', ip_name,
                         '?api-version=', NETWORK_API])
         return self.do_get(endpoint, access_token)
-    
-    # get_access_token(tenant_id, application_id, application_secret)
-    # get an Azure access token using the adal library
-    def get_access_token(self, tenant_id, application_id, application_secret):
-	context = adal.AuthenticationContext(authentication_endpoint + tenant_id)
-	token_response = context.acquire_token_with_client_credentials(resource, application_id,
-                                                                   application_secret)
-	return token_response.get('accessToken')
+
 
     @wet_method('127.0.0.1')
     def _getIpaddress_azure_node(self, auth_data, instance_data):
-	access_token = self.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
-                                                auth_data.get("application_id"),
-						auth_data.get("application_secret")) 
-	#log.debug("Acc token:"+access_token)
+
+#--------Kodtisztazas, access token beemelese-----------
+        # get_access_token(tenant_id, application_id, application_secret)
+        # get an Azure access token using the adal library
+	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
+	token_response = auth_context.acquire_token_with_client_credentials(resource,
+                                                                            auth_data.get("application_id"),
+                                                                            auth_data.get("application_secret")
+                                                                            )
+	access_token = token_response.get('accessToken')
+        log.debug("Acc token:"+access_token)
 
 	nic_subscription_id = ''
 	nic_resource_group = ''
@@ -722,20 +726,21 @@ class GetAddress(Command):
                         '?api-version=', NETWORK_API])
         return self.do_get(endpoint, access_token)
 
-    # get_access_token(tenant_id, application_id, application_secret)
-    # get an Azure access token using the adal library
-    def get_access_token(self, tenant_id, application_id, application_secret):
-	context = adal.AuthenticationContext(authentication_endpoint + tenant_id)
-	token_response = context.acquire_token_with_client_credentials(resource, application_id,
-                                                                   application_secret)
-	return token_response.get('accessToken')
+
 
     @wet_method('127.0.0.1')
     def _getaddress_azure_node(self, auth_data, instance_data):
-	access_token = self.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
-                                                auth_data.get("application_id"), 
-						auth_data.get("application_secret"))
-	#log.debug("Acc token:"+access_token)
+
+#--------Kodtisztazas, access token beemelese-----------
+        # get_access_token(tenant_id, application_id, application_secret)
+        # get an Azure access token using the adal library
+	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
+	token_response = auth_context.acquire_token_with_client_credentials(resource,
+                                                                            auth_data.get("application_id"),
+                                                                            auth_data.get("application_secret")
+                                                                            )
+	access_token = token_response.get('accessToken')
+        log.debug("Acc token:"+access_token)
 
 	nic_subscription_id = ''
 	nic_resource_group = ''
