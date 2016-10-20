@@ -182,7 +182,6 @@ class CreateNode(Command):
     @wet_method()
     def _create_azure_node(self, resource_dict, auth_data, name_unique, os_uri, customdata):
 
-#--------Kodtisztazas, access token beemelese-----------
         # get_access_token(tenant_id, application_id, application_secret)
         # get an Azure access token using the adal library
 	auth_context = adal.AuthenticationContext(authentication_endpoint + (resource_dict.get("tenant_id")))
@@ -211,7 +210,9 @@ class CreateNode(Command):
 		#RAISE EXCEPTION KELL!
 		log.debug('Error:' + pip_return.json().get("error").get("message"))
 
-	time.sleep(2)       # 2 masodperc varakozas (kb. ezalatt elkesziti)
+	# TODO: check if Public IP address is created?
+	# TODO: replace sleep() with check function?
+	#time.sleep(2)       # 2 masodperc varakozas (kb. ezalatt elkesziti)
 
 	# # create NIC
 	
@@ -228,8 +229,10 @@ class CreateNode(Command):
 	        # HIBA RAISE ERROR 
 	    log.debug('Error:' + nic_return.json().get("error").get("message"))
 	
-
-	time.sleep(2)       # 2 masodperc varakozas (kb. ezalatt elkesziti)
+    
+	# TODO: check if Network Interface Card is created?
+	# TODO: replace sleep() with check function?
+	#time.sleep(2)       # 2 masodperc varakozas (kb. ezalatt elkesziti)
 
 
 	
@@ -251,6 +254,7 @@ class CreateNode(Command):
                                      customdata,
 				     image_uri=resource_dict.get("image_uri", None)
 				     )
+	log.debug("vm_return_STATUS.CODE: %s", str(vm_return.status_code))
 	log.debug("vm_return: %s", str(vm_return.json()))
 
 	#vm_getinfo =''
@@ -268,7 +272,7 @@ class CreateNode(Command):
 	#	log.debug("get_vm_instance STATUS CODE: %s", str(vm_getinfo.status_code))
 	#	log.debug("get_vm_instance JSON: %s", str(vm_getinfo.json()))
 	#	break
-	time.sleep(3)
+	#time.sleep(2)
 	return dict(vm_name_unique="occo-vm-"+name_unique, nic_id=nic_id, public_ip_id=public_ip_id)
 
 
@@ -319,7 +323,8 @@ class DropNode(Command):
                         '?api-version=', COMP_API])
 	return requests.delete(url, headers=headers)
 
-    #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!! Instance nezet !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # get_vm_instance
+    # get information about a virtual machine (instance view)
     def get_vm_instance_view(self, access_token, subscription_id, resource_group, vm_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
 	url = ''.join([azure_rm_endpoint,
@@ -330,7 +335,8 @@ class DropNode(Command):
 	return requests.get(url, headers=headers)
 
 
-    #NIC torlese
+    # delete_nic
+    # delete a network interface card
     def delete_nic(self, access_token, subscription_id, resource_group, nic_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
 	url = ''.join([azure_rm_endpoint,
@@ -341,7 +347,8 @@ class DropNode(Command):
 	return requests.delete(url, headers=headers)
 
 
-#PIP torlese
+    # delete_pip
+    # delete a public ip address
     def delete_pip(self, access_token, subscription_id, resource_group, pip_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
 	url = ''.join([azure_rm_endpoint,
@@ -355,7 +362,6 @@ class DropNode(Command):
     @wet_method()
     def _drop_azure_node(self, auth_data, instance_data):
 
-#--------Kodtisztazas, access token beemelese-----------
         # get_access_token(tenant_id, application_id, application_secret)
         # get an Azure access token using the adal library
 	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
@@ -366,11 +372,11 @@ class DropNode(Command):
 	access_token = token_response.get('accessToken')
         #log.debug("Acc token:"+access_token)
 
-	rmreturn = self.delete_vm(access_token,
+	delete_return = self.delete_vm(access_token,
 				     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
 				     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
 				     instance_data.get("instance_id").get("vm_name_unique"))
-	log.debug("Delete response kod:%s",str(rmreturn.status_code))
+	log.debug("Delete response kod:%s",str(delete_return.status_code))
 	#if rmreturn.status_code != (202 or 200):
 	    # hiba dobas!
 	
@@ -415,7 +421,9 @@ class DropNode(Command):
 	    #akkor error
 	    log.debug("Delete_nic_info.status_code: %s:",str(delete_nic_info.status_code))
 	
-	time.sleep(5) #max ennyi ido alatt torli ki a NIC-et
+	# TODO: solve dependency: check if Network Interface Card is deleted?
+	# TODO: Replace sleep() with checking method?
+	time.sleep(5)
 
 	#Delete PIP, if the node has got public IP
 	if (instance_data.get("instance_id").get("public_ip_id") != None):
@@ -451,8 +459,8 @@ class GetState(Command):
         Command.__init__(self)
         self.instance_data = instance_data
     
-
-#  !!!!!!!!!!!!!!!!!!!!!!!!!!!!! Instance nezet !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # get_vm_instance
+    # get information about a virtual machine (instance view)
     def get_vm_instance_view(self, access_token, subscription_id, resource_group, vm_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
         url = ''.join([azure_rm_endpoint,
@@ -465,12 +473,7 @@ class GetState(Command):
 
     @wet_method('VM running')
     def _getstate_azure_node(self, auth_data, instance_data):
-	#access_token = self.get_access_token(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id"),
-        #                                        auth_data.get("application_id"), 
-	#					auth_data.get("application_secret"))
-	#log.debug("Acc token:"+access_token)
 
-	#--------Kodtisztazas, access token beemelese-----------
         # get_access_token(tenant_id, application_id, application_secret)
         # get an Azure access token using the adal library
 	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
@@ -536,7 +539,8 @@ class GetIpAddress(Command):
         Command.__init__(self)
         self.instance_data = instance_data
 
-    #get_nics(access_token, subscription_id) ez kell a vm publikus ip cimenek lekeresehez
+    # get_nic
+    # get information about a network interface card
     def get_nic(self, access_token, subscription_id, resource_group, nic_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
 	url = ''.join([azure_rm_endpoint,
@@ -563,7 +567,6 @@ class GetIpAddress(Command):
     @wet_method('127.0.0.1')
     def _getIpaddress_azure_node(self, auth_data, instance_data):
 
-#--------Kodtisztazas, access token beemelese-----------
         # get_access_token(tenant_id, application_id, application_secret)
         # get an Azure access token using the adal library
 	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
@@ -587,10 +590,7 @@ class GetIpAddress(Command):
 
         nic_subscription_id = vm_nic_id_splitted[2]
         nic_resource_group = vm_nic_id_splitted[4]
-	#Ideiglenes megoldas
-	#Problema: eredetileg a NIC ID-t egy GetStatus hivassal kertem le, de mivel a felhasznalo ezt megadja a node_definition.yaml-ben
-		# ezert innen ki lehet venni.
-		# eredeti megoldasban a NIC ID tartalmazott egy "primary vagy secondary" jelzot is
+	# eredeti megoldasban a NIC ID tartalmazott egy "primary vagy secondary" jelzot is
 	#Megoldas: egy if ag berakasa, ha talal primary v secondary szot akkor eredetileg dolgozza fel a NIC ID-t
 	if (vm_nic_id.find('primary') != -1) or (vm_nic_id.find('secondary') != -1):
 	    nic_name_idx = vm_nic_id_splitted[8].index(',')
@@ -611,8 +611,8 @@ class GetIpAddress(Command):
         public_ip_rsg = []  # resource group kell a get_public_ip hivashoz
 	public_ip_subid = []
 
-	ip_data = [] #nyers adat, amit az API valaszol
 
+	#ip_data #nyers adat, amit az API valaszol
 	ip_data = self.get_nic(access_token, nic_subscription_id, nic_resource_group, vm_nic_name).json()
 	log.debug("ip_data NYERS: %s",str(ip_data))
 	ip_data = ip_data.get("properties", dict()).get("ipConfigurations")
@@ -642,16 +642,6 @@ class GetIpAddress(Command):
     	
 
 	    log.debug("public_ip_subid: %s",str(public_ip_subid))
-	    # print(public_ip_rsg)
-	    # print(public_ip_name)
-
-	    #Get information about a public IP address hivas
-	    #for i in range(len(public_ip_name)):
-    	    #    public_ip.append(self.get_public_ip(access_token, public_ip_subid[i],public_ip_rsg[i],public_ip_name[i]).json()["properties"]["ipAddress"])
-
-	    # #Formazas
-	    # for i in range(len(public_ip)):
-    	    # print(public_ip_name[i] + ' Public IP: ' + public_ip[i])
 	    public_ip_raw = str(self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json())
 	    log.debug("public_ip_ NYERS: %s",str(public_ip_raw))
 	    public_ip = self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json().get("properties", dict()).get("ipAddress", None)
@@ -682,7 +672,8 @@ class GetAddress(Command):
         Command.__init__(self)
         self.instance_data = instance_data
 
-    #get_nics(access_token, subscription_id) ez kell a vm publikus ip cimenek lekeresehez
+    # get_nic
+    # get information about a network interface card
     def get_nic(self, access_token, subscription_id, resource_group, nic_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
 	url = ''.join([azure_rm_endpoint,
@@ -693,7 +684,7 @@ class GetAddress(Command):
                         '?api-version=', NETWORK_API])
 	return requests.get(url, headers=headers)
 
-    # get_public_ip(access_token, subscription_id, resource_group)
+    # get_public_ip
     # get details about the named public ip address
     def get_public_ip(self, access_token, subscription_id, resource_group, ip_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
@@ -710,7 +701,6 @@ class GetAddress(Command):
     @wet_method('127.0.0.1')
     def _getaddress_azure_node(self, auth_data, instance_data):
 
-#--------Kodtisztazas, access token beemelese-----------
         # get_access_token(tenant_id, application_id, application_secret)
         # get an Azure access token using the adal library
 	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
@@ -734,10 +724,8 @@ class GetAddress(Command):
 
         nic_subscription_id = vm_nic_id_splitted[2]
         nic_resource_group = vm_nic_id_splitted[4]
-	#Ideiglenes megoldas
-	#Problema: eredetileg a NIC ID-t egy GetStatus hivassal kertem le, de mivel a felhasznalo ezt megadja a node_definition.yaml-ben
-		# ezert innen ki lehet venni.
-		# eredeti megoldasban a NIC ID tartalmazott egy "primary vagy secondary" jelzot is
+
+	# eredeti megoldasban a NIC ID tartalmazott egy "primary vagy secondary" jelzot is
 	#Megoldas: egy if ag berakasa, ha talal primary v secondary szot akkor eredetileg dolgozza fel a NIC ID-t
 	if (vm_nic_id.find('primary') != -1) or (vm_nic_id.find('secondary') != -1):
 	    nic_name_idx = vm_nic_id_splitted[8].index(',')
@@ -790,16 +778,6 @@ class GetAddress(Command):
     	
 
 	    log.debug("public_ip_subid: %s",str(public_ip_subid))
-	    # print(public_ip_rsg)
-	    # print(public_ip_name)
-
-	    #Get information about a public IP address hivas
-	    #for i in range(len(public_ip_name)):
-    	    #    public_ip.append(self.get_public_ip(access_token, public_ip_subid[i],public_ip_rsg[i],public_ip_name[i]).json()["properties"]["ipAddress"])
-
-	    # #Formazas
-	    # for i in range(len(public_ip)):
-    	    # print(public_ip_name[i] + ' Public IP: ' + public_ip[i])
 	    public_ip_raw = str(self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json())
 	    log.debug("public_ip_ NYERS: %s",str(public_ip_raw))
 	    public_dns = self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json().get("properties", dict()).get("dnsSettings", dict()).get("fqdn", None)
