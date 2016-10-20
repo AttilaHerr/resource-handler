@@ -74,7 +74,8 @@ class CreateNode(Command):
 
     def create_vm(self, access_token, subscription_id, resource_group, vm_name, vm_size, publisher, offer, sku, version,
               storage_account, os_uri, username, password, nic_id, location, customData, image_uri=None, osType="Linux"):
-	endpoint = ''.join([azure_rm_endpoint,
+	headers = {"content-type": "application/json", "Authorization": 'Bearer ' + access_token}
+	url = ''.join([azure_rm_endpoint,
                 '/subscriptions/', subscription_id,
                 '/resourceGroups/', resource_group,
                 '/providers/Microsoft.Compute/virtualMachines/', vm_name,
@@ -131,12 +132,13 @@ class CreateNode(Command):
                 '" }, "networkProfile": {',
                 '"networkInterfaces": [{"id": "', nic_id,
                 '", "properties": {"primary": true}}]}}}'])
-	return self.do_put(endpoint, body, access_token)
+	return requests.put(url, data=body, headers=headers)
 
     # create_public_ip(access_token, subscription_id, resource_group)
     # list the public ip addresses in a resource group
     def create_public_ip(self, access_token, subscription_id, resource_group, public_ip_name, location, dns_label=None):
-	endpoint = ''.join([azure_rm_endpoint,
+	headers = {"content-type": "application/json", "Authorization": 'Bearer ' + access_token}
+	url = ''.join([azure_rm_endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/publicIPAddresses/', public_ip_name,
@@ -148,12 +150,13 @@ class CreateNode(Command):
 	else:
 	    body = ''.join(['{"location": "', location,
                     '", "properties": {"publicIPAllocationMethod": "Dynamic",}}'])
-        return self.do_put(endpoint, body, access_token)
+        return requests.put(url, data=body, headers=headers)
 
     # create_nic(access_token, subscription_id, resource_group, nic_name, public_ip_id, subnet_id, location)
     # create a network interface with an associated public ip address
     def create_nic(self, access_token, subscription_id, resource_group, nic_name, subnet_id, location, nsg_id, public_ip_id=None):
-	endpoint = ''.join([azure_rm_endpoint,
+	headers = {"content-type": "application/json", "Authorization": 'Bearer ' + access_token}
+	url = ''.join([azure_rm_endpoint,
                     '/subscriptions/', subscription_id,
                     '/resourceGroups/', resource_group,
                     '/providers/Microsoft.Network/networkInterfaces/', nic_name,
@@ -173,13 +176,7 @@ class CreateNode(Command):
                     '"privateIPAllocationMethod": "Dynamic",',
                     '"subnet": { "id": "', subnet_id,
                     '" } } } ] } }'])
-	return self.do_put(endpoint, body, access_token)
-
-    # do_put(endpoint, body, access_token)
-    # do an HTTP PUT request and return JSON
-    def do_put(self, endpoint, body, access_token):
-	headers = {"content-type": "application/json", "Authorization": 'Bearer ' + access_token}
-	return requests.put(endpoint, data=body, headers=headers)
+	return requests.put(url, data=body, headers=headers)
 
 
     @wet_method()
@@ -194,7 +191,7 @@ class CreateNode(Command):
                                                                             auth_data.get("application_secret")
                                                                             )
 	access_token = token_response.get('accessToken')
-        log.debug("Acc token:"+access_token)
+        #log.debug("Acc token:"+access_token)
 
 
         # # create public IP address
@@ -288,9 +285,9 @@ class CreateNode(Command):
 	resource_dict = self.resolved_node_definition.get("resource",dict())
 	name_unique = "{0}-{1}-{2}-{3}".format(
 					self.resolved_node_definition.get("infra_name")[0:14],
-					self.resolved_node_definition.get("infra_id")[0:13],
+					self.resolved_node_definition.get("infra_id")[0:12],
                                        self.resolved_node_definition.get("name")[0:14],
-                                       self.resolved_node_definition.get("node_id")[0:13])
+                                       self.resolved_node_definition.get("node_id")[0:12])
 	name_unique = name_unique.replace("_", "-")
         log.debug("Azure name_unique: %s",name_unique)
 	os_uri = "http://{0}.blob.core.windows.net/{1}/osdisk.vhd".format(resource_dict.get("storage_name"), "occo-vm-"+name_unique)
@@ -314,53 +311,45 @@ class DropNode(Command):
     # delete_vm(access_token, subscription_id, resource_group, vm_name)
     # delete a virtual machine
     def delete_vm(self, access_token, subscription_id, resource_group, vm_name):
-	endpoint = ''.join([azure_rm_endpoint,
+	headers = {"Authorization": 'Bearer ' + access_token}
+	url = ''.join([azure_rm_endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Compute/virtualMachines/', vm_name,
                         '?api-version=', COMP_API])
-	return self.do_delete(endpoint, access_token)
+	return requests.delete(url, headers=headers)
 
     #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!! Instance nezet !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     def get_vm_instance_view(self, access_token, subscription_id, resource_group, vm_name):
-	endpoint = ''.join([azure_rm_endpoint,
+	headers = {"Authorization": 'Bearer ' + access_token}
+	url = ''.join([azure_rm_endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Compute/virtualMachines/', vm_name,
                         '/InstanceView?api-version=', COMP_API])
-	return self.do_get(endpoint, access_token)
+	return requests.get(url, headers=headers)
 
 
     #NIC torlese
     def delete_nic(self, access_token, subscription_id, resource_group, nic_name):
-	endpoint = ''.join([azure_rm_endpoint,
+	headers = {"Authorization": 'Bearer ' + access_token}
+	url = ''.join([azure_rm_endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/networkInterfaces/', nic_name,
                         '?api-version=', NETWORK_API])
-	return self.do_delete(endpoint, access_token)
+	return requests.delete(url, headers=headers)
 
 
 #PIP torlese
     def delete_pip(self, access_token, subscription_id, resource_group, pip_name):
-	endpoint = ''.join([azure_rm_endpoint,
+	headers = {"Authorization": 'Bearer ' + access_token}
+	url = ''.join([azure_rm_endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/publicIPAddresses/', pip_name,
                         '?api-version=', NETWORK_API])
-	return self.do_delete(endpoint, access_token)
-
-    # do_delete(endpoint, access_token)
-    # do an HTTP DELETE request and return JSON
-    def do_delete(self, endpoint, access_token):
-	headers = {"Authorization": 'Bearer ' + access_token}
-	return requests.delete(endpoint, headers=headers)
-
-	# do_get(endpoint, access_token)
-    # do an HTTP GET request and return JSON
-    def do_get(self, endpoint, access_token):
-	headers = {"Authorization": 'Bearer ' + access_token}
-	return requests.get(endpoint, headers=headers)
+	return requests.delete(url, headers=headers)
 
 
     @wet_method()
@@ -375,7 +364,7 @@ class DropNode(Command):
                                                                             auth_data.get("application_secret")
                                                                             )
 	access_token = token_response.get('accessToken')
-        log.debug("Acc token:"+access_token)
+        #log.debug("Acc token:"+access_token)
 
 	rmreturn = self.delete_vm(access_token,
 				     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
@@ -465,17 +454,13 @@ class GetState(Command):
 
 #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!! Instance nezet !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     def get_vm_instance_view(self, access_token, subscription_id, resource_group, vm_name):
-        endpoint = ''.join([azure_rm_endpoint,
+	headers = {"Authorization": 'Bearer ' + access_token}
+        url = ''.join([azure_rm_endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Compute/virtualMachines/', vm_name,
                         '/InstanceView?api-version=', COMP_API])
-        return self.do_get(endpoint, access_token)
-    # do_get(endpoint, access_token)
-    # do an HTTP GET request and return JSON
-    def do_get(self, endpoint, access_token):
-	headers = {"Authorization": 'Bearer ' + access_token}
-	return requests.get(endpoint, headers=headers)
+        return requests.get(url, headers=headers)
 
 
     @wet_method('VM running')
@@ -553,29 +538,26 @@ class GetIpAddress(Command):
 
     #get_nics(access_token, subscription_id) ez kell a vm publikus ip cimenek lekeresehez
     def get_nic(self, access_token, subscription_id, resource_group, nic_name):
-	endpoint = ''.join([azure_rm_endpoint,
+	headers = {"Authorization": 'Bearer ' + access_token}
+	url = ''.join([azure_rm_endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/',
                         '/networkInterfaces/', nic_name,
                         '?api-version=', NETWORK_API])
-	return self.do_get(endpoint, access_token)
-    # do_get(endpoint, access_token)
-    # do an HTTP GET request and return JSON
-    def do_get(self, endpoint, access_token):
-	headers = {"Authorization": 'Bearer ' + access_token}
-	return requests.get(endpoint, headers=headers)
+	return requests.get(url, headers=headers)
 
     # get_public_ip(access_token, subscription_id, resource_group)
     # get details about the named public ip address
     def get_public_ip(self, access_token, subscription_id, resource_group, ip_name):
-	endpoint = ''.join([azure_rm_endpoint,
+	headers = {"Authorization": 'Bearer ' + access_token}
+	url = ''.join([azure_rm_endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/',
                         'publicIPAddresses/', ip_name,
                         '?api-version=', NETWORK_API])
-        return self.do_get(endpoint, access_token)
+        return requests.get(url, headers=headers)
 
 
     @wet_method('127.0.0.1')
@@ -590,7 +572,7 @@ class GetIpAddress(Command):
                                                                             auth_data.get("application_secret")
                                                                             )
 	access_token = token_response.get('accessToken')
-        log.debug("Acc token:"+access_token)
+        #log.debug("Acc token:"+access_token)
 
 	nic_subscription_id = ''
 	nic_resource_group = ''
@@ -702,29 +684,26 @@ class GetAddress(Command):
 
     #get_nics(access_token, subscription_id) ez kell a vm publikus ip cimenek lekeresehez
     def get_nic(self, access_token, subscription_id, resource_group, nic_name):
-	endpoint = ''.join([azure_rm_endpoint,
+	headers = {"Authorization": 'Bearer ' + access_token}
+	url = ''.join([azure_rm_endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/',
                         '/networkInterfaces/', nic_name,
                         '?api-version=', NETWORK_API])
-	return self.do_get(endpoint, access_token)
-    # do_get(endpoint, access_token)
-    # do an HTTP GET request and return JSON
-    def do_get(self, endpoint, access_token):
-	headers = {"Authorization": 'Bearer ' + access_token}
-	return requests.get(endpoint, headers=headers)
+	return requests.get(url, headers=headers)
 
     # get_public_ip(access_token, subscription_id, resource_group)
     # get details about the named public ip address
     def get_public_ip(self, access_token, subscription_id, resource_group, ip_name):
-	endpoint = ''.join([azure_rm_endpoint,
+	headers = {"Authorization": 'Bearer ' + access_token}
+	url = ''.join([azure_rm_endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/',
                         'publicIPAddresses/', ip_name,
                         '?api-version=', NETWORK_API])
-        return self.do_get(endpoint, access_token)
+        return requests.get(url, headers=headers)
 
 
 
@@ -740,7 +719,7 @@ class GetAddress(Command):
                                                                             auth_data.get("application_secret")
                                                                             )
 	access_token = token_response.get('accessToken')
-        log.debug("Acc token:"+access_token)
+        #log.debug("Acc token:"+access_token)
 
 	nic_subscription_id = ''
 	nic_resource_group = ''
