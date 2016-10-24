@@ -54,7 +54,7 @@ STATE_MAPPING = {
 
 log = logging.getLogger('occo.resourcehandler.azure')
 
-azure_rm_endpoint = 'https://management.azure.com'
+#azure_rm_endpoint = 'https://management.azure.com'
 
 authentication_endpoint = 'https://login.microsoftonline.com/'
 #Azure Management API endpoint
@@ -72,10 +72,11 @@ class CreateNode(Command):
         Command.__init__(self)
         self.resolved_node_definition = resolved_node_definition
 
-    def create_vm(self, access_token, subscription_id, resource_group, vm_name, vm_size, publisher, offer, sku, version,
+    def create_vm(self, endpoint, access_token, subscription_id, resource_group, vm_name, vm_size, publisher, offer, sku, version,
               storage_account, os_uri, username, password, nic_id, location, customData, image_uri=None, osType="Linux"):
+	log.debug("create_VM locals:%s",str(locals().items()))
 	headers = {"content-type": "application/json", "Authorization": 'Bearer ' + access_token}
-	url = ''.join([azure_rm_endpoint,
+	url = ''.join([endpoint,
                 '/subscriptions/', subscription_id,
                 '/resourceGroups/', resource_group,
                 '/providers/Microsoft.Compute/virtualMachines/', vm_name,
@@ -136,9 +137,9 @@ class CreateNode(Command):
 
     # create_public_ip(access_token, subscription_id, resource_group)
     # list the public ip addresses in a resource group
-    def create_public_ip(self, access_token, subscription_id, resource_group, public_ip_name, location, dns_label=None):
+    def create_public_ip(self, endpoint, access_token, subscription_id, resource_group, public_ip_name, location, dns_label=None):
 	headers = {"content-type": "application/json", "Authorization": 'Bearer ' + access_token}
-	url = ''.join([azure_rm_endpoint,
+	url = ''.join([endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/publicIPAddresses/', public_ip_name,
@@ -154,9 +155,9 @@ class CreateNode(Command):
 
     # create_nic(access_token, subscription_id, resource_group, nic_name, public_ip_id, subnet_id, location)
     # create a network interface with an associated public ip address
-    def create_nic(self, access_token, subscription_id, resource_group, nic_name, subnet_id, location, nsg_id, public_ip_id=None):
+    def create_nic(self, endpoint, access_token, subscription_id, resource_group, nic_name, subnet_id, location, nsg_id, public_ip_id=None):
 	headers = {"content-type": "application/json", "Authorization": 'Bearer ' + access_token}
-	url = ''.join([azure_rm_endpoint,
+	url = ''.join([endpoint,
                     '/subscriptions/', subscription_id,
                     '/resourceGroups/', resource_group,
                     '/providers/Microsoft.Network/networkInterfaces/', nic_name,
@@ -197,7 +198,7 @@ class CreateNode(Command):
 	public_ip_id = None
 	if resource_dict.get("public_ip_needed", False):
 	    log.debug('Creating public IP address: ' + "occo-pip-"+name_unique)
-	    pip_return = self.create_public_ip(access_token, resource_dict.get("subscription_id"), resource_dict.get("resource_group"),
+	    pip_return = self.create_public_ip(resource_dict.get("endpoint"), access_token, resource_dict.get("subscription_id"), resource_dict.get("resource_group"),
                                             "occo-pip-"+name_unique, resource_dict.get("vnet_location"),
 					    dns_label=resource_dict.get("public_dns_name", None))
 	    log.debug("create_pip RETURN: %s", str(pip_return.json()))
@@ -205,7 +206,7 @@ class CreateNode(Command):
 	    #Ha sikeres a pip keszites, akkor folytassa, maskulonben ERROR
 	    if pip_return.status_code == 201:
 		public_ip_id = pip_return.json().get('id', None)
-		log.debug('public_ip_id = ' + str(public_ip_id))
+		#log.debug('public_ip_id = ' + str(public_ip_id))
 	    else:
 		#RAISE EXCEPTION KELL!
 		log.debug('Error:' + pip_return.json().get("error").get("message"))
@@ -218,13 +219,14 @@ class CreateNode(Command):
 	
 	log.debug('Creating NIC: ' + "occo-nic-"+name_unique)
 	subnet_id = "{0}/subnets/{1}".format(resource_dict.get("vnet_id"), resource_dict.get("subnet_name"))
-	nic_return = self.create_nic(access_token, resource_dict.get("subscription_id"), resource_dict.get("resource_group"),
+	nic_return = self.create_nic(resource_dict.get("endpoint"), access_token, resource_dict.get("subscription_id"), resource_dict.get("resource_group"),
 					 "occo-nic-"+name_unique, subnet_id , resource_dict.get("vnet_location"),resource_dict.get("nsg_id"), public_ip_id=public_ip_id)
-	log.debug('NIC_RETURN : ' +str(nic_return.json()))
+	#log.debug('NIC_RETURN : ' +str(nic_return.json()))
 	log.debug('NIC_status_code : ' +str(nic_return.status_code))
+	
 	if nic_return.status_code == 201:
 	    nic_id = nic_return.json().get('id')
-	    log.debug('NIC_ID : ' +str(nic_id))
+	    #log.debug('NIC_ID : ' +str(nic_id))
 	else:
 	        # HIBA RAISE ERROR 
 	    log.debug('Error:' + nic_return.json().get("error").get("message"))
@@ -236,7 +238,8 @@ class CreateNode(Command):
 
 
 	
-	vm_return = self.create_vm(access_token, 
+	vm_return = self.create_vm(  resource_dict.get("endpoint"),
+				     access_token, 
                                      resource_dict.get("subscription_id"), 
                                      resource_dict.get("resource_group"), 
                                       "occo-vm-" + name_unique,
@@ -255,7 +258,7 @@ class CreateNode(Command):
 				     image_uri=resource_dict.get("image_uri", None)
 				     )
 	log.debug("vm_return_STATUS.CODE: %s", str(vm_return.status_code))
-	log.debug("vm_return: %s", str(vm_return.json()))
+	#log.debug("vm_return: %s", str(vm_return.json()))
 
 	#vm_getinfo =''
 	#while ((str(vm_getinfo).find('ProvisioningState/succeeded')) == -1):
@@ -286,7 +289,7 @@ class CreateNode(Command):
 	log.debug("Resource section: %s",str(self.resolved_node_definition.get("resource",dict())))
 	log.debug("Resolved node definition: %s",str(self.resolved_node_definition))
 
-	resource_dict = self.resolved_node_definition.get("resource",dict())
+	#resource_dict = self.resolved_node_definition.get("resource",dict())
 	name_unique = "{0}-{1}-{2}-{3}".format(
 					self.resolved_node_definition.get("infra_name")[0:14],
 					self.resolved_node_definition.get("infra_id")[0:12],
@@ -294,7 +297,8 @@ class CreateNode(Command):
                                        self.resolved_node_definition.get("node_id")[0:12])
 	name_unique = name_unique.replace("_", "-")
         log.debug("Azure name_unique: %s",name_unique)
-	os_uri = "http://{0}.blob.core.windows.net/{1}/osdisk.vhd".format(resource_dict.get("storage_name"), "occo-vm-"+name_unique)
+	os_uri = "http://{0}.blob.core.windows.net/{1}/osdisk.vhd".format(self.resolved_node_definition.get("resource", dict()).get("storage_name"),
+									  "occo-vm-"+name_unique)
 
 	#image_uri = "https://tesztgroupdisk.blob.core.windows.net/vhds/kezzel-keszitett201691011256.vhd"
 	customdata = base64.b64encode(self.resolved_node_definition.get("context"))
@@ -314,9 +318,9 @@ class DropNode(Command):
 
     # delete_vm(access_token, subscription_id, resource_group, vm_name)
     # delete a virtual machine
-    def delete_vm(self, access_token, subscription_id, resource_group, vm_name):
+    def delete_vm(self, endpoint, access_token, subscription_id, resource_group, vm_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
-	url = ''.join([azure_rm_endpoint,
+	url = ''.join([endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Compute/virtualMachines/', vm_name,
@@ -325,9 +329,9 @@ class DropNode(Command):
 
     # get_vm_instance
     # get information about a virtual machine (instance view)
-    def get_vm_instance_view(self, access_token, subscription_id, resource_group, vm_name):
+    def get_vm_instance_view(self, endpoint, access_token, subscription_id, resource_group, vm_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
-	url = ''.join([azure_rm_endpoint,
+	url = ''.join([endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Compute/virtualMachines/', vm_name,
@@ -337,9 +341,9 @@ class DropNode(Command):
 
     # delete_nic
     # delete a network interface card
-    def delete_nic(self, access_token, subscription_id, resource_group, nic_name):
+    def delete_nic(self, endpoint, access_token, subscription_id, resource_group, nic_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
-	url = ''.join([azure_rm_endpoint,
+	url = ''.join([endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/networkInterfaces/', nic_name,
@@ -349,9 +353,9 @@ class DropNode(Command):
 
     # delete_pip
     # delete a public ip address
-    def delete_pip(self, access_token, subscription_id, resource_group, pip_name):
+    def delete_pip(self, endpoint, access_token, subscription_id, resource_group, pip_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
-	url = ''.join([azure_rm_endpoint,
+	url = ''.join([endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/publicIPAddresses/', pip_name,
@@ -372,7 +376,8 @@ class DropNode(Command):
 	access_token = token_response.get('accessToken')
         #log.debug("Acc token:"+access_token)
 
-	delete_return = self.delete_vm(access_token,
+	delete_return = self.delete_vm(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+				     access_token,
 				     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
 				     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
 				     instance_data.get("instance_id").get("vm_name_unique"))
@@ -385,10 +390,11 @@ class DropNode(Command):
 	#Ha vegzett a VM torlessel, akkor a hatrahagyott containert kitoroljuk a storage accountban
 	vm_getinfo =''
 	while ((str(vm_getinfo).find('not found')) == -1):
-	    vm_getinfo = self.get_vm_instance_view(access_token,
-						     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
-						     instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
-						     instance_data.get("instance_id").get("vm_name_unique"))
+	    vm_getinfo = self.get_vm_instance_view(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+						   access_token,
+						   instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
+						   instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
+						   instance_data.get("instance_id").get("vm_name_unique"))
 	    if vm_getinfo.status_code == 200:
 		if (len(vm_getinfo.json().get("statuses")) == 1):
         	    vm_getinfo = "Code:{0} \t Display status:{1}".format(vm_getinfo.json().get("statuses")[0].get("code"),vm_getinfo.json().get("statuses")[0].get("displayStatus"))
@@ -411,7 +417,8 @@ class DropNode(Command):
 	#sikeres a torles, ha (delete_container = True es rmreturn.status_code = 200 or 202)
 
 	#Delete NIC
-	delete_nic_info = self.delete_nic(access_token,
+	delete_nic_info = self.delete_nic(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+					  access_token,
 					  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
 					  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
 					  instance_data.get("instance_id").get("nic_id").rsplit('/').pop())
@@ -427,7 +434,8 @@ class DropNode(Command):
 
 	#Delete PIP, if the node has got public IP
 	if (instance_data.get("instance_id").get("public_ip_id") != None):
-	    delete_pip_info = self.delete_pip(access_token,
+	    delete_pip_info = self.delete_pip(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+					    access_token,
 					    instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"),
 					    instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
 					    instance_data.get("instance_id").get("public_ip_id").rsplit('/').pop())
@@ -449,6 +457,9 @@ class DropNode(Command):
 	log.debug("Auth_data: %s",str(resource_handler.auth_data))
 	log.debug("Instance data: %s",str(self.instance_data))
 
+	# TODO: Give dropping information to user?
+	log.info("Dropping Azure node (%s) may take a while, please standby.", str(self.instance_data.get("instance_id").get("vm_name_unique")))
+
 	self._drop_azure_node(resource_handler.auth_data, self.instance_data)
 
 
@@ -461,9 +472,9 @@ class GetState(Command):
     
     # get_vm_instance
     # get information about a virtual machine (instance view)
-    def get_vm_instance_view(self, access_token, subscription_id, resource_group, vm_name):
+    def get_vm_instance_view(self, endpoint, access_token, subscription_id, resource_group, vm_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
-        url = ''.join([azure_rm_endpoint,
+        url = ''.join([endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Compute/virtualMachines/', vm_name,
@@ -487,7 +498,8 @@ class GetState(Command):
 	inst_state = ''
 	vm_getinfo_code = ''
 	vm_getinfo_disp = ''
-	vm_getinfo = self.get_vm_instance_view(access_token, 
+	vm_getinfo = self.get_vm_instance_view(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+						  access_token, 
 						  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"), 
 						  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
 						   instance_data.get("instance_id").get("vm_name_unique"))
@@ -524,7 +536,7 @@ class GetState(Command):
 	log.debug("Instance data: %s",str(self.instance_data))
 
 	inst_state = self._getstate_azure_node(resource_handler.auth_data, self.instance_data)
-
+	log.debug("ins_state : %s", str(inst_state))
         try:
             retval = STATE_MAPPING[inst_state]
         except KeyError:
@@ -541,9 +553,9 @@ class GetIpAddress(Command):
 
     # get_nic
     # get information about a network interface card
-    def get_nic(self, access_token, subscription_id, resource_group, nic_name):
+    def get_nic(self, endpoint, access_token, subscription_id, resource_group, nic_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
-	url = ''.join([azure_rm_endpoint,
+	url = ''.join([endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/',
@@ -553,9 +565,9 @@ class GetIpAddress(Command):
 
     # get_public_ip(access_token, subscription_id, resource_group)
     # get details about the named public ip address
-    def get_public_ip(self, access_token, subscription_id, resource_group, ip_name):
+    def get_public_ip(self, endpoint, access_token, subscription_id, resource_group, ip_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
-	url = ''.join([azure_rm_endpoint,
+	url = ''.join([endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/',
@@ -585,8 +597,8 @@ class GetIpAddress(Command):
 	vm_nic_id = instance_data.get("instance_id").get("nic_id")
 	
 	vm_nic_id_splitted = str.split(str(vm_nic_id), '/')
-        log.debug("Vm_nics_ids_splitted: %s",str(vm_nic_id_splitted))
-        log.debug("Vm_nics_id_splitted: %s",str(len(vm_nic_id_splitted)))
+        #log.debug("Vm_nics_ids_splitted: %s",str(vm_nic_id_splitted))
+        #log.debug("Vm_nics_id_splitted: %s",str(len(vm_nic_id_splitted)))
 
         nic_subscription_id = vm_nic_id_splitted[2]
         nic_resource_group = vm_nic_id_splitted[4]
@@ -613,13 +625,17 @@ class GetIpAddress(Command):
 
 
 	#ip_data #nyers adat, amit az API valaszol
-	ip_data = self.get_nic(access_token, nic_subscription_id, nic_resource_group, vm_nic_name).json()
-	log.debug("ip_data NYERS: %s",str(ip_data))
+	ip_data = self.get_nic(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+				access_token, 
+				nic_subscription_id, 
+				nic_resource_group, 
+				vm_nic_name).json()
+	#log.debug("ip_data NYERS: %s",str(ip_data))
 	ip_data = ip_data.get("properties", dict()).get("ipConfigurations")
-	log.debug("ip_data properties/ipConfigurations: %s",str(ip_data))
+	#log.debug("ip_data properties/ipConfigurations: %s",str(ip_data))
 
-	log.debug("ip_data hossza: %s",str(len(ip_data[0].get("properties", dict()))))
-	log.debug("ip_data tartalma: %s",str(ip_data[0].get("properties", dict())))
+	#log.debug("ip_data hossza: %s",str(len(ip_data[0].get("properties", dict()))))
+	#log.debug("ip_data tartalma: %s",str(ip_data[0].get("properties", dict())))
 
 	if len(ip_data[0].get("properties", dict())) == 7:
 	    private_ip = (str(ip_data[0].get("properties", dict()).get("privateIPAddress")).strip('u'))
@@ -629,27 +645,35 @@ class GetIpAddress(Command):
     	    private_ip = (str(ip_data[0].get("properties", dict()).get("privateIPAddress")).strip('u'))
     	    public_ip_id = ''
 	
-	log.debug("public_ip_id: %s",str(public_ip_id))
+	#log.debug("public_ip_id: %s",str(public_ip_id))
 	# Fel kell dolgozni a public ip id-jat
 	public_ip_id_splitted = []
 	# ha van a NIC-hez publikus IP rendelve
         if len(public_ip_id) > 0:
     	    public_ip_id_splitted = (str(public_ip_id).split('/'))
-	    log.debug("Public_ip_id_splitted: %s",str(public_ip_id_splitted))
+	#    log.debug("Public_ip_id_splitted: %s",str(public_ip_id_splitted))
     	    public_ip_subid = (public_ip_id_splitted[2])
     	    public_ip_rsg = (public_ip_id_splitted[4])
     	    public_ip_name = (public_ip_id_splitted[8])
     	
 
-	    log.debug("public_ip_subid: %s",str(public_ip_subid))
-	    public_ip_raw = str(self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json())
-	    log.debug("public_ip_ NYERS: %s",str(public_ip_raw))
-	    public_ip = self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json().get("properties", dict()).get("ipAddress", None)
+	#    log.debug("public_ip_subid: %s",str(public_ip_subid))
+	    public_ip_raw = str(self.get_public_ip(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+						    access_token, 
+						    public_ip_subid, 
+						    public_ip_rsg,
+						    public_ip_name).json())
+	#    log.debug("public_ip_ NYERS: %s",str(public_ip_raw))
+	    public_ip = self.get_public_ip(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+					   access_token,
+					   public_ip_subid,
+					   public_ip_rsg,
+					   public_ip_name).json().get("properties", dict()).get("ipAddress", None)
 	    
 	#Nincs public IP a NIC-hez rendelve
         else:
 	    public_ip = None
-	log.debug("public ip: %s",str(public_ip))
+	log.debug("Public IP: %s",str(public_ip))
 
 	return coalesce(public_ip, private_ip)
     
@@ -674,9 +698,9 @@ class GetAddress(Command):
 
     # get_nic
     # get information about a network interface card
-    def get_nic(self, access_token, subscription_id, resource_group, nic_name):
+    def get_nic(self, endpoint, access_token, subscription_id, resource_group, nic_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
-	url = ''.join([azure_rm_endpoint,
+	url = ''.join([endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/',
@@ -686,9 +710,9 @@ class GetAddress(Command):
 
     # get_public_ip
     # get details about the named public ip address
-    def get_public_ip(self, access_token, subscription_id, resource_group, ip_name):
+    def get_public_ip(self, endpoint, access_token, subscription_id, resource_group, ip_name):
 	headers = {"Authorization": 'Bearer ' + access_token}
-	url = ''.join([azure_rm_endpoint,
+	url = ''.join([endpoint,
                         '/subscriptions/', subscription_id,
                         '/resourceGroups/', resource_group,
                         '/providers/Microsoft.Network/',
@@ -719,8 +743,8 @@ class GetAddress(Command):
 	vm_nic_id = instance_data.get("instance_id").get("nic_id")
 
 	vm_nic_id_splitted = str.split(str(vm_nic_id), '/')
-        log.debug("Vm_nics_ids_splitted: %s",str(vm_nic_id_splitted))
-        log.debug("Vm_nics_id_splitted: %s",str(len(vm_nic_id_splitted)))
+        #log.debug("Vm_nics_ids_splitted: %s",str(vm_nic_id_splitted))
+        #log.debug("Vm_nics_id_splitted: %s",str(len(vm_nic_id_splitted)))
 
         nic_subscription_id = vm_nic_id_splitted[2]
         nic_resource_group = vm_nic_id_splitted[4]
@@ -745,17 +769,21 @@ class GetAddress(Command):
         public_ip_id = ''
         public_ip_rsg = []  # resource group kell a get_public_ip hivashoz
 	public_ip_subid = []
-	public_dns = ""
+	public_dns = None
 
 	ip_data = [] #nyers adat, amit az API valaszol
 
-	ip_data = self.get_nic(access_token, nic_subscription_id, nic_resource_group, vm_nic_name).json()
-	log.debug("ip_data NYERS: %s",str(ip_data))
+	ip_data = self.get_nic(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+				access_token, 
+				nic_subscription_id, 
+				nic_resource_group, 
+				vm_nic_name).json()
+	#log.debug("ip_data NYERS: %s",str(ip_data))
 	ip_data = ip_data.get("properties", dict()).get("ipConfigurations")
-	log.debug("ip_data properties/ipConfigurations: %s",str(ip_data))
+	#log.debug("ip_data properties/ipConfigurations: %s",str(ip_data))
 
-	log.debug("ip_data hossza: %s",str(len(ip_data[0].get("properties", dict()))))
-	log.debug("ip_data tartalma: %s",str(ip_data[0].get("properties", dict())))
+	#log.debug("ip_data hossza: %s",str(len(ip_data[0].get("properties", dict()))))
+	#log.debug("ip_data tartalma: %s",str(ip_data[0].get("properties", dict())))
 
 	if len(ip_data[0].get("properties", dict())) == 7:
 	    private_ip = (str(ip_data[0].get("properties", dict()).get("privateIPAddress")).strip('u'))
@@ -765,29 +793,41 @@ class GetAddress(Command):
     	    private_ip = (str(ip_data[0].get("properties", dict()).get("privateIPAddress")).strip('u'))
     	    public_ip_id = ''
 	
-	log.debug("public_ip_id: %s",str(public_ip_id))
+	#log.debug("public_ip_id: %s",str(public_ip_id))
 	# Fel kell dolgozni a public ip id-jat
 	public_ip_id_splitted = []
 	# ha van a NIC-hez publikus IP rendelve
         if len(public_ip_id) > 0:
     	    public_ip_id_splitted = (str(public_ip_id).split('/'))
-	    log.debug("Public_ip_id_splitted: %s",str(public_ip_id_splitted))
+	#    log.debug("Public_ip_id_splitted: %s",str(public_ip_id_splitted))
     	    public_ip_subid = (public_ip_id_splitted[2])
     	    public_ip_rsg = (public_ip_id_splitted[4])
     	    public_ip_name = (public_ip_id_splitted[8])
     	
 
-	    log.debug("public_ip_subid: %s",str(public_ip_subid))
-	    public_ip_raw = str(self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json())
-	    log.debug("public_ip_ NYERS: %s",str(public_ip_raw))
-	    public_dns = self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json().get("properties", dict()).get("dnsSettings", dict()).get("fqdn", None)
-	    log.debug("DNS nev: %s",str(public_dns))
-	    public_ip = self.get_public_ip(access_token, public_ip_subid,public_ip_rsg,public_ip_name).json().get("properties", dict()).get("ipAddress", None)
+	#    log.debug("public_ip_subid: %s",str(public_ip_subid))
+	    public_ip_raw = str(self.get_public_ip(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+						   access_token, 
+						   public_ip_subid,
+						   public_ip_rsg,
+						   public_ip_name).json())
+	#    log.debug("public_ip_ NYERS: %s",str(public_ip_raw))
+	    public_dns = self.get_public_ip(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+					    access_token,
+					    public_ip_subid,
+					    public_ip_rsg,
+					    public_ip_name).json().get("properties", dict()).get("dnsSettings", dict()).get("fqdn", None)
+	    log.debug("DNS name: %s",str(public_dns))
+	    public_ip = self.get_public_ip(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+					   access_token, 
+					   public_ip_subid,
+					   public_ip_rsg,
+					   public_ip_name).json().get("properties", dict()).get("ipAddress", None)
 
 	#Else, nincs public IP es public DNS a NIC-hez rendelve
         else:
 	    public_ip = None
-	log.debug("public ip: %s",str(public_ip))
+	log.debug("Public IP: %s",str(public_ip))
 
 	return coalesce(public_dns,
                         public_ip,
@@ -840,7 +880,7 @@ class AzureSchemaChecker(RHSchemaChecker):
         self.req_keys = ["type", "endpoint", "subscription_id", "tenant_id", "storage_name", "storage_key",
                          "vnet_id", "vnet_location", "nsg_id", "subnet_name", "resource_group", "vm_location", "vm_size",
                          "publisher", "offer", "sku", "version", "username", "password", "customdata"]
-        self.opt_keys = ["public_ip_needed", "public_dns_name", "image_uri",  "keep_vhd_on_destroy"]
+        self.opt_keys = ["public_ip_needed", "public_dns_name", "keep_vhd_on_destroy"]
     def perform_check(self, data):
         missing_keys = RHSchemaChecker.get_missing_keys(self, data, self.req_keys)
         if missing_keys:
