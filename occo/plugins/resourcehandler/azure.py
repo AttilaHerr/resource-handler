@@ -185,12 +185,15 @@ class CreateNode(Command):
 
         # get_access_token(tenant_id, application_id, application_secret)
         # get an Azure access token using the adal library
+	#log.debug("Accesstoken creating...")
 	auth_context = adal.AuthenticationContext(authentication_endpoint + (resource_dict.get("tenant_id")))
 	token_response = auth_context.acquire_token_with_client_credentials(resource,
                                                                             auth_data.get("application_id"),
                                                                             auth_data.get("application_secret")
                                                                             )
+	#log.debug("Token response:"+str(token_response))
 	access_token = token_response.get('accessToken')
+	
         #log.debug("Acc token:"+access_token)
 
 
@@ -275,7 +278,10 @@ class CreateNode(Command):
 	#	log.debug("get_vm_instance STATUS CODE: %s", str(vm_getinfo.status_code))
 	#	log.debug("get_vm_instance JSON: %s", str(vm_getinfo.json()))
 	#	break
+	
+	# Temporary
 	#time.sleep(2)
+	log.debug("_create_azure_node DONE!")
 	return dict(vm_name_unique="occo-vm-"+name_unique, nic_id=nic_id, public_ip_id=public_ip_id)
 
 
@@ -286,8 +292,8 @@ class CreateNode(Command):
         log.debug("Azure: CreateNode")
 	log.debug("Endpoint: %s",str(resource_handler.endpoint))
 	log.debug("Auth_data: %s",str(resource_handler.auth_data))
-	log.debug("Resource section: %s",str(self.resolved_node_definition.get("resource",dict())))
-	log.debug("Resolved node definition: %s",str(self.resolved_node_definition))
+	#log.debug("Resource section: %s",str(self.resolved_node_definition.get("resource",dict())))
+	#log.debug("Resolved node definition: %s",str(self.resolved_node_definition))
 
 	#resource_dict = self.resolved_node_definition.get("resource",dict())
 	name_unique = "{0}-{1}-{2}-{3}".format(
@@ -301,8 +307,9 @@ class CreateNode(Command):
 									  "occo-vm-"+name_unique)
 
 	#image_uri = "https://tesztgroupdisk.blob.core.windows.net/vhds/kezzel-keszitett201691011256.vhd"
+	# customdata = Cloud-init content
 	customdata = base64.b64encode(self.resolved_node_definition.get("context"))
-	log.debug("customdata:"+customdata)
+	#log.debug("customdata:"+customdata)
 	log.debug("vm_name: occo-vm-"+name_unique)
 	log.debug("os_uri:"+os_uri)
 
@@ -338,7 +345,18 @@ class DropNode(Command):
                         '/InstanceView?api-version=', COMP_API])
 	return requests.get(url, headers=headers)
 
-
+    # get_nic
+    # get information about a network interface card
+    def get_nic(self, endpoint, access_token, subscription_id, resource_group, nic_name):
+	headers = {"Authorization": 'Bearer ' + access_token}
+	url = ''.join([endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Network/',
+                        '/networkInterfaces/', nic_name,
+                        '?api-version=', NETWORK_API])
+	return requests.get(url, headers=headers)
+    
     # delete_nic
     # delete a network interface card
     def delete_nic(self, endpoint, access_token, subscription_id, resource_group, nic_name):
@@ -368,11 +386,13 @@ class DropNode(Command):
 
         # get_access_token(tenant_id, application_id, application_secret)
         # get an Azure access token using the adal library
+	#log.debug("Access token creating (DropNode)...")
 	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
 	token_response = auth_context.acquire_token_with_client_credentials(resource,
                                                                             auth_data.get("application_id"),
                                                                             auth_data.get("application_secret")
                                                                             )
+	#log.debug("Token response:"+str(token_response))
 	access_token = token_response.get('accessToken')
         #log.debug("Acc token:"+access_token)
 
@@ -428,9 +448,30 @@ class DropNode(Command):
 	    #akkor error
 	    log.debug("Delete_nic_info.status_code: %s:",str(delete_nic_info.status_code))
 	
-	# TODO: solve dependency: check if Network Interface Card is deleted?
+	# TODO: solve dependency: check Network Interface Card is deleted?
 	# TODO: Replace sleep() with checking method?
-	time.sleep(5)
+	#time.sleep(5)
+	
+	# Network Interface Card is deleted checking
+	nic_delete_status = ""
+	while ((str(nic_delete_status).find('not found')) == -1):
+	    nic_delete_status = self.get_nic(instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("endpoint"),
+					access_token, 
+					instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"), 
+					instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"), 
+					instance_data.get("instance_id").get("nic_id").rsplit('/').pop())
+	    #log.debug("NIC STATUS nyers: %s", str(nic_delete_status))
+	    log.debug("NIC STATUS_CODE: %s", str(nic_delete_status.status_code))
+	    if nic_delete_status.status_code == 200:
+		nic_delete_status = nic_delete_status.json().get("properties").get("provisioningState")
+		log.debug("NIC STATUS: %s", str(nic_delete_status))
+	    else:
+		# TODO: raise error!
+		log.debug("NIC STATUS CODE: %s", str(nic_delete_status.status_code))
+		nic_delete_status = nic_delete_status.json().get("error").get("message")
+		log.debug("NIC STATUS: %s", str(nic_delete_status))
+	    time.sleep(1)
+	
 
 	#Delete PIP, if the node has got public IP
 	if (instance_data.get("instance_id").get("public_ip_id") != None):
@@ -444,7 +485,7 @@ class DropNode(Command):
 		#akkor error
 		log.debug("Delete_pip_info.status_code: %s",str(delete_pip_info))
 
-
+	log.debug("_drop_azure_node DONE!")
 	return
 
     def perform(self, resource_handler):
@@ -484,14 +525,19 @@ class GetState(Command):
 
     @wet_method('VM running')
     def _getstate_azure_node(self, auth_data, instance_data):
+	
+	# TODO: Get access token less often?
+	# Too much access token request cause Azure request refuse error?
 
         # get_access_token(tenant_id, application_id, application_secret)
         # get an Azure access token using the adal library
+	#log.debug("Access token creating (GetStatus)... ")
 	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
 	token_response = auth_context.acquire_token_with_client_credentials(resource,
                                                                             auth_data.get("application_id"),
                                                                             auth_data.get("application_secret")
                                                                             )
+	#log.debug("token_response:"+str(token_response))
 	access_token = token_response.get('accessToken')
         #log.debug("Acc token:"+access_token)
 
@@ -503,6 +549,8 @@ class GetState(Command):
 						  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("subscription_id"), 
 						  instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("resource_group"),
 						   instance_data.get("instance_id").get("vm_name_unique"))
+	log.debug("vm_getinfo json: %s", str(vm_getinfo.json()))
+	log.debug("vm_getinfo code: %s", str(vm_getinfo.status_code))
 	if vm_getinfo.status_code == 200:
 	    if (len(vm_getinfo.json().get("statuses")) == 1):
 		vm_getinfo_code = vm_getinfo.json().get("statuses")[0].get("code")
@@ -523,7 +571,8 @@ class GetState(Command):
 	    inst_state = "succeeded"
 	else:
 	    inst_state = vm_getinfo_disp[vm_getinfo_disp.find(':')+1:]
-
+	
+	log.debug("_getstate_azure_node DONE!")
 	return inst_state
     
     def perform(self, resource_handler):
@@ -536,7 +585,7 @@ class GetState(Command):
 	log.debug("Instance data: %s",str(self.instance_data))
 
 	inst_state = self._getstate_azure_node(resource_handler.auth_data, self.instance_data)
-	log.debug("ins_state : %s", str(inst_state))
+	log.debug("inst_state : %s", str(inst_state))
         try:
             retval = STATE_MAPPING[inst_state]
         except KeyError:
@@ -581,11 +630,13 @@ class GetIpAddress(Command):
 
         # get_access_token(tenant_id, application_id, application_secret)
         # get an Azure access token using the adal library
+	#log.debug("Access token creating (GetIPAddress) ...")
 	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
 	token_response = auth_context.acquire_token_with_client_credentials(resource,
                                                                             auth_data.get("application_id"),
                                                                             auth_data.get("application_secret")
                                                                             )
+	#log.debug("Token response:"+str(token_response))
 	access_token = token_response.get('accessToken')
         #log.debug("Acc token:"+access_token)
 
@@ -727,11 +778,13 @@ class GetAddress(Command):
 
         # get_access_token(tenant_id, application_id, application_secret)
         # get an Azure access token using the adal library
+	#log.debug("Access token creating (GetAddress) ...")
 	auth_context = adal.AuthenticationContext(authentication_endpoint + (instance_data.get("resolved_node_definition", dict()).get("resource",dict()).get("tenant_id")))
 	token_response = auth_context.acquire_token_with_client_credentials(resource,
                                                                             auth_data.get("application_id"),
                                                                             auth_data.get("application_secret")
                                                                             )
+	#log.debug("Token response:"+str(token_response))
 	access_token = token_response.get('accessToken')
         #log.debug("Acc token:"+access_token)
 
