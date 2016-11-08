@@ -81,6 +81,7 @@ class CreateNode(Command):
                 '/resourceGroups/', resource_group,
                 '/providers/Microsoft.Compute/virtualMachines/', vm_name,
                 '?api-version=', COMP_API])
+
 	if image_uri:
 	    body = ''.join(['{"name": "', vm_name,
                 '","location": "', location,
@@ -100,7 +101,7 @@ class CreateNode(Command):
                 '"computerName": "', vm_name,
                 '", "adminUsername": "', username,
                 '", "adminPassword": "', password,
-                '", "customData": "', customData,
+                (('", "customData": "'+customData) if customData else ''),
                 # '", linuxConfigurpuation": { "disablePasswordAuthentication": "', disablePassAuth,
                 # '", ssh": { "publicKeys": [ {'
                 # '"path": "', keyPathOnVm,
@@ -124,7 +125,7 @@ class CreateNode(Command):
                 '"computerName": "', vm_name,
                 '", "adminUsername": "', username,
                 '", "adminPassword": "', password,
-                '", "customData": "', customData,
+                (('", "customData": "'+customData) if customData else ''),
                 # '", linuxConfigurpuation": { "disablePasswordAuthentication": "', disablePassAuth,
                 # '", ssh": { "publicKeys": [ {'
                 # '"path": "', keyPathOnVm,
@@ -179,6 +180,16 @@ class CreateNode(Command):
                     '" } } } ] } }'])
 	return requests.put(url, data=body, headers=headers)
 
+    # get_vm_instance
+    # get information about a virtual machine (instance view)
+    def get_vm_instance_view(self, endpoint, access_token, subscription_id, resource_group, vm_name):
+	headers = {"Authorization": 'Bearer ' + access_token}
+        url = ''.join([endpoint,
+                        '/subscriptions/', subscription_id,
+                        '/resourceGroups/', resource_group,
+                        '/providers/Microsoft.Compute/virtualMachines/', vm_name,
+                        '/InstanceView?api-version=', COMP_API])
+        return requests.get(url, headers=headers)
 
     @wet_method()
     def _create_azure_node(self, resource_dict, auth_data, name_unique, os_uri, customdata):
@@ -249,7 +260,7 @@ class CreateNode(Command):
 				     resource_dict.get("vm_size"), 
                                      resource_dict.get("publisher"), 
                                      resource_dict.get("offer"), 
-                                     resource_dict.get("sku"),
+                                     str(resource_dict.get("sku")),
                                      resource_dict.get("version"), 
                                      resource_dict.get("storage_name"), 
                                      os_uri, 
@@ -261,7 +272,7 @@ class CreateNode(Command):
 				     image_uri=resource_dict.get("image_uri", None)
 				     )
 	log.debug("vm_return_STATUS.CODE: %s", str(vm_return.status_code))
-	#log.debug("vm_return: %s", str(vm_return.json()))
+	log.debug("vm_return: %s", str(vm_return.json()))
 
 	#vm_getinfo =''
 	#while ((str(vm_getinfo).find('ProvisioningState/succeeded')) == -1):
@@ -278,9 +289,22 @@ class CreateNode(Command):
 	#	log.debug("get_vm_instance STATUS CODE: %s", str(vm_getinfo.status_code))
 	#	log.debug("get_vm_instance JSON: %s", str(vm_getinfo.json()))
 	#	break
-	
-	# Temporary
-	#time.sleep(2)
+	vm_getinfo = self.get_vm_instance_view(resource_dict.get("endpoint"),
+						  access_token, 
+						  resource_dict.get("subscription_id"), 
+						  resource_dict.get("resource_group"),
+						  "occo-vm-"+name_unique)
+	log.debug("vm_getinfo json: %s", str(vm_getinfo.json()))
+	log.debug("vm_getinfo code: %s", str(vm_getinfo.status_code))
+	while vm_getinfo.status_code == 404:
+	    vm_getinfo = self.get_vm_instance_view(resource_dict.get("endpoint"),
+						  access_token, 
+						  resource_dict.get("subscription_id"), 
+						  resource_dict.get("resource_group"),
+						  "occo-vm-"+name_unique)
+	    log.debug("vm_getinfo code: %s", str(vm_getinfo.status_code))
+	    time.sleep(1)
+
 	log.debug("_create_azure_node DONE!")
 	return dict(vm_name_unique="occo-vm-"+name_unique, nic_id=nic_id, public_ip_id=public_ip_id)
 
@@ -308,8 +332,12 @@ class CreateNode(Command):
 
 	#image_uri = "https://tesztgroupdisk.blob.core.windows.net/vhds/kezzel-keszitett201691011256.vhd"
 	# customdata = Cloud-init content
-	customdata = base64.b64encode(self.resolved_node_definition.get("context"))
-	#log.debug("customdata:"+customdata)
+	resolved_context = self.resolved_node_definition.get("context")
+	if resolved_context == "":
+	    resolved_context = None
+	customdata = base64.b64encode(resolved_context) if resolved_context else None
+	log.debug("customdata:"+str(resolved_context))
+
 	log.debug("vm_name: occo-vm-"+name_unique)
 	log.debug("os_uri:"+os_uri)
 
@@ -572,6 +600,7 @@ class GetState(Command):
 	else:
 	    inst_state = vm_getinfo_disp[vm_getinfo_disp.find(':')+1:]
 	
+	log.debug("Inst_state: " + inst_state)
 	log.debug("_getstate_azure_node DONE!")
 	return inst_state
     
@@ -582,7 +611,7 @@ class GetState(Command):
         log.debug("Azure: GetState")
 	log.debug("Endpoint: %s",str(resource_handler.endpoint))
 	log.debug("Auth_data: %s",str(resource_handler.auth_data))
-	log.debug("Instance data: %s",str(self.instance_data))
+	#log.debug("Instance data: %s",str(self.instance_data))
 
 	inst_state = self._getstate_azure_node(resource_handler.auth_data, self.instance_data)
 	log.debug("inst_state : %s", str(inst_state))
@@ -932,7 +961,7 @@ class AzureSchemaChecker(RHSchemaChecker):
     def __init__(self):
         self.req_keys = ["type", "endpoint", "subscription_id", "tenant_id", "storage_name", "storage_key",
                          "vnet_id", "vnet_location", "nsg_id", "subnet_name", "resource_group", "vm_location", "vm_size",
-                         "publisher", "offer", "sku", "version", "username", "password", "customdata"]
+                         "publisher", "offer", "sku", "version", "username", "password"]
         self.opt_keys = ["public_ip_needed", "public_dns_name", "keep_vhd_on_destroy"]
     def perform_check(self, data):
         missing_keys = RHSchemaChecker.get_missing_keys(self, data, self.req_keys)
